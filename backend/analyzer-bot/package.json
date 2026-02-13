@@ -4,7 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "analyze:companies": "tsx ./scripts/analyze/analyze-companies.ts"
+    "build": "tsc -p tsconfig.json",
+    "analyze:companies": "node ./dist/scripts/analyze/analyze-companies.js"
   },
   "dependencies": {
     "ajv": "6.12.6",

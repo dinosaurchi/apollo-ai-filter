@@ -21,13 +21,22 @@ export async function requestJson<T>(
   const auth = authHeader(env);
   if (auth) headers.set("Authorization", auth);
 
+  const timeoutMsRaw = Number.parseInt(env.OPENCODE_HTTP_TIMEOUT_MS ?? "", 10);
+  const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 120000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
-    response = await fetch(url, { ...init, headers });
+    response = await fetch(url, { ...init, headers, signal: controller.signal });
   } catch (error: unknown) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timeout after ${timeoutMs}ms for ${url}`);
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Request failed for ${url}: ${message}`);
   }
+  clearTimeout(timer);
 
   const raw = await response.text();
   if (!response.ok) {

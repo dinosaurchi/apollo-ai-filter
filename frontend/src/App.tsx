@@ -106,12 +106,24 @@ function collectRequiredFields(config: unknown): string[] {
   const out = new Set<string>();
   if (!config || typeof config !== "object") return [];
   const cfg = config as Record<string, unknown>;
-  const run = (cfg.run ?? {}) as Record<string, unknown>;
   const normalize = (cfg.normalize ?? {}) as Record<string, unknown>;
   const derive = (normalize.derive ?? {}) as Record<string, unknown>;
   const steps = Array.isArray(cfg.steps) ? cfg.steps : [];
+  const generated = new Set<string>(["__row_id", "domain", "profile_text", "Decision-Final", "Confidence-Final", "Final-Source"]);
 
-  if (typeof run.id_field === "string" && run.id_field.trim()) out.add(run.id_field);
+  for (const step of steps) {
+    if (!step || typeof step !== "object") continue;
+    const stepObj = step as Record<string, unknown>;
+    const type = stepObj.type;
+    if (type !== "ai_text" && type !== "web_ai") continue;
+    const task = (stepObj.task ?? {}) as Record<string, unknown>;
+    for (const key of ["decision_field", "confidence_field", "reason_field", "evidence_field"]) {
+      const field = task[key];
+      if (typeof field === "string" && field.trim()) generated.add(field);
+    }
+  }
+
+  // run.id_field is optional in practice due __row_id fallback.
   if (typeof derive.domain_from === "string" && derive.domain_from.trim()) out.add(derive.domain_from);
   if (Array.isArray(derive.profile_text_fields)) {
     for (const field of derive.profile_text_fields) if (typeof field === "string" && field.trim()) out.add(field);
@@ -122,7 +134,7 @@ function collectRequiredFields(config: unknown): string[] {
     const type = stepObj.type;
     const input = (stepObj.input ?? {}) as Record<string, unknown>;
     const where = (input.where ?? {}) as Record<string, unknown>;
-    if (typeof where.field === "string" && where.field.trim()) out.add(where.field);
+    if (typeof where.field === "string" && where.field.trim() && !generated.has(where.field)) out.add(where.field);
     if (type === "filter") {
       const rules = (stepObj.rules ?? {}) as Record<string, unknown>;
       const collectRules = (arr: unknown): void => {
@@ -130,7 +142,7 @@ function collectRequiredFields(config: unknown): string[] {
         for (const rule of arr) {
           if (!rule || typeof rule !== "object") continue;
           const field = (rule as Record<string, unknown>).field;
-          if (typeof field === "string" && field.trim()) out.add(field);
+          if (typeof field === "string" && field.trim() && !generated.has(field)) out.add(field);
         }
       };
       collectRules(rules.keep_if_any);
@@ -139,14 +151,7 @@ function collectRequiredFields(config: unknown): string[] {
     if (type === "ai_text" || type === "web_ai") {
       const task = (stepObj.task ?? {}) as Record<string, unknown>;
       if (Array.isArray(task.read_fields)) {
-        for (const field of task.read_fields) if (typeof field === "string" && field.trim()) out.add(field);
-      }
-    }
-    if (type === "apollo_people") {
-      const company = (stepObj.company ?? {}) as Record<string, unknown>;
-      for (const key of ["id_field", "name_field", "domain_field"]) {
-        const field = company[key];
-        if (typeof field === "string" && field.trim()) out.add(field);
+        for (const field of task.read_fields) if (typeof field === "string" && field.trim() && !generated.has(field)) out.add(field);
       }
     }
   }
@@ -210,6 +215,8 @@ export function App() {
   const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies">("overview");
 
   const [allCompanies, setAllCompanies] = useState<CompanyRow[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [companiesError, setCompaniesError] = useState("");
   const [selectedCompany, setSelectedCompany] = useState<CompanyRow | null>(null);
   const [selectedCompanyPeople, setSelectedCompanyPeople] = useState<PersonRow[]>([]);
   const [companyDetailTab, setCompanyDetailTab] = useState<"overview" | "people">("overview");
@@ -264,10 +271,9 @@ export function App() {
     () =>
       Boolean(csvFile)
       && configErrors.length === 0
-      && missingColumns.length === 0
       && configText.trim().length > 0
       && !submitting,
-    [csvFile, configErrors, missingColumns, configText, submitting]
+    [csvFile, configErrors, configText, submitting]
   );
 
   async function refreshRuns(): Promise<void> {
@@ -276,8 +282,17 @@ export function App() {
   }
 
   async function refreshCompanies(): Promise<void> {
-    const response = await apiGet<{ ok: boolean; companies: CompanyRow[] }>("/companies");
-    setAllCompanies(response.companies);
+    setCompaniesLoading(true);
+    setCompaniesError("");
+    try {
+      const response = await apiGet<{ ok: boolean; companies: CompanyRow[] }>("/companies");
+      setAllCompanies(response.companies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load companies";
+      setCompaniesError(message);
+    } finally {
+      setCompaniesLoading(false);
+    }
   }
 
   async function refreshPeople(): Promise<void> {
@@ -319,6 +334,8 @@ export function App() {
       canonical.add(h);
       canonical.add(toSnakeCase(h));
     }
+    if (canonical.has("company_name")) canonical.add("name");
+    if (canonical.has("apollo_account_id")) canonical.add("id");
     const missing = requiredFields.filter((field) => !canonical.has(field));
     setMissingColumns(nextConfigErrors.length > 0 ? [] : missing);
   }
@@ -332,9 +349,17 @@ export function App() {
       body.append("csvFile", csvFile);
       body.append("configJson", configText);
       const response = await fetch("/api/runs", { method: "POST", body });
-      const data = (await response.json()) as { ok: boolean; run?: RunSummary; error?: string };
-      if (!response.ok || !data.ok || !data.run) {
-        throw new Error(data.error ?? "Failed to submit run");
+      const responseType = response.headers.get("content-type") ?? "";
+      const isJson = responseType.includes("application/json");
+      const data = isJson
+        ? (await response.json()) as { ok: boolean; run?: RunSummary; error?: string }
+        : null;
+      if (!response.ok || !data?.ok || !data.run) {
+        const text = isJson ? "" : await response.text();
+        const fallback = response.status === 413
+          ? "Upload is too large. Please reduce file size or increase proxy body limit."
+          : `Failed to submit run (HTTP ${response.status})`;
+        throw new Error(data?.error ?? (text.trim().length > 0 ? text : fallback));
       }
       setSubmitMessage(`Run ${data.run.id} submitted. Redirecting to Run Monitor...`);
       window.location.hash = "#/runs";
@@ -433,8 +458,8 @@ export function App() {
             </div>
           )}
           {missingColumns.length > 0 && (
-            <div className="error-list">
-              <p>CSV is missing required columns:</p>
+            <div className="warn-list">
+              <p>CSV is missing some referenced fields (run can still proceed):</p>
               <p>{missingColumns.join(", ")}</p>
             </div>
           )}
@@ -487,7 +512,11 @@ export function App() {
       {view === "companies" && (
         <section className="panel">
           <h2>Company</h2>
-          <button onClick={() => void refreshCompanies()}>Refresh</button>
+          <button onClick={() => void refreshCompanies()} disabled={companiesLoading}>
+            {companiesLoading ? "Loading..." : "Refresh"}
+          </button>
+          {companiesLoading && <p className="status">Loading companies...</p>}
+          {companiesError && <p className="error">{companiesError}</p>}
           <div className="table-wrap">
             <table>
               <thead>
@@ -495,8 +524,6 @@ export function App() {
                   <th>Run</th>
                   <th>Company</th>
                   <th>Domain</th>
-                  <th>Decision</th>
-                  <th>Confidence</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -506,8 +533,6 @@ export function App() {
                     <td>{company.run_id}</td>
                     <td>{company.company_name}</td>
                     <td>{company.company_domain}</td>
-                    <td>{company.decision}</td>
-                    <td>{company.confidence}</td>
                     <td>
                       <button onClick={() => void openCompanyDetail(company)}>Detail</button>
                     </td>
@@ -555,7 +580,8 @@ export function App() {
       )}
 
       {selectedRunDetail && (
-        <dialog open className="dialog">
+        <div className="dialog-overlay" role="presentation" onClick={() => setSelectedRunDetail(null)}>
+          <dialog open className="dialog" onClick={(event) => event.stopPropagation()}>
           <header>
             <strong>Run Detail: {selectedRunDetail.id}</strong>
             <button onClick={() => setSelectedRunDetail(null)}>Close</button>
@@ -613,11 +639,13 @@ export function App() {
               </table>
             </div>
           )}
-        </dialog>
+          </dialog>
+        </div>
       )}
 
       {selectedCompany && (
-        <dialog open className="dialog">
+        <div className="dialog-overlay" role="presentation" onClick={() => setSelectedCompany(null)}>
+          <dialog open className="dialog" onClick={(event) => event.stopPropagation()}>
           <header>
             <strong>
               Company Detail: {selectedCompany.company_name} ({selectedCompany.company_id})
@@ -643,9 +671,6 @@ export function App() {
               <p>Run: {selectedCompany.run_id}</p>
               <p>Company: {selectedCompany.company_name}</p>
               <p>Domain: {selectedCompany.company_domain}</p>
-              <p>
-                Decision/Confidence: {selectedCompany.decision} / {selectedCompany.confidence}
-              </p>
               <p>Evidence: {selectedCompany.evidence}</p>
               <pre className="log-box">{selectedCompany.raw}</pre>
             </div>
@@ -677,7 +702,8 @@ export function App() {
               </table>
             </div>
           )}
-        </dialog>
+          </dialog>
+        </div>
       )}
     </main>
   );

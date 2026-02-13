@@ -5,13 +5,12 @@ import { env } from "./config";
 import { RunManager } from "./run-manager";
 
 export const app = express();
-export const runManager = new RunManager(env.OUTPUT_ROOT, env.ANALYZE_SCRIPT_DIR, {
-  analyzerImage: env.ANALYZER_IMAGE,
-  analyzerDockerfile: env.ANALYZER_DOCKERFILE,
-  opencodeAuthFile: env.OPENCODE_AUTH_FILE,
-  opencodeConfigDir: env.OPENCODE_CONFIG_DIR,
-  opencodeDataDir: env.OPENCODE_DATA_DIR
-});
+export const runManager = new RunManager(
+  env.OUTPUT_ROOT,
+  env.ANALYZE_SCRIPT_DIR,
+  env.OPENCODE_SERVER_URL,
+  env.ANALYZER_NODE_OPTIONS
+);
 export const runManagerReady = runManager.init();
 
 const upload = multer({

@@ -221,24 +221,29 @@ export const RunConfigSchema = z.object({
 export type RunConfig = z.infer<typeof RunConfigSchema>;
 
 export function collectRequiredInputFields(cfg: RunConfig): string[] {
+  const generated = new Set<string>(["__row_id", "domain", "profile_text", "Decision-Final", "Confidence-Final", "Final-Source"]);
+  for (const step of cfg.steps) {
+    if (step.type === "ai_text" || step.type === "web_ai") {
+      generated.add(step.task.decision_field);
+      generated.add(step.task.confidence_field);
+      if (step.task.reason_field) generated.add(step.task.reason_field);
+      if (step.task.evidence_field) generated.add(step.task.evidence_field);
+    }
+  }
+
   const out = new Set<string>();
-  if (cfg.run?.id_field) out.add(cfg.run.id_field);
+  // run.id_field is optional in practice because the analyzer falls back to __row_id.
   if (cfg.normalize?.derive?.domain_from) out.add(cfg.normalize.derive.domain_from);
   for (const field of cfg.normalize?.derive?.profile_text_fields ?? []) out.add(field);
   for (const step of cfg.steps) {
     if (step.type === "filter") {
-      for (const rule of step.rules.keep_if_any ?? []) out.add(rule.field);
-      for (const rule of step.rules.drop_if_any ?? []) out.add(rule.field);
-      if (step.input?.where?.field) out.add(step.input.where.field);
+      for (const rule of step.rules.keep_if_any ?? []) if (!generated.has(rule.field)) out.add(rule.field);
+      for (const rule of step.rules.drop_if_any ?? []) if (!generated.has(rule.field)) out.add(rule.field);
+      if (step.input?.where?.field && !generated.has(step.input.where.field)) out.add(step.input.where.field);
     }
     if (step.type === "ai_text" || step.type === "web_ai") {
-      for (const field of step.task.read_fields) out.add(field);
-      if (step.input?.where?.field) out.add(step.input.where.field);
-    }
-    if (step.type === "apollo_people") {
-      if (step.company?.id_field) out.add(step.company.id_field);
-      if (step.company?.name_field) out.add(step.company.name_field);
-      if (step.company?.domain_field) out.add(step.company.domain_field);
+      for (const field of step.task.read_fields) if (!generated.has(field)) out.add(field);
+      if (step.input?.where?.field && !generated.has(step.input.where.field)) out.add(step.input.where.field);
     }
   }
   return Array.from(out).filter((x) => x.trim().length > 0);

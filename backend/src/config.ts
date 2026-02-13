@@ -19,23 +19,8 @@ const EnvSchema = z.object({
     .string()
     .min(1)
     .default(path.resolve(process.cwd(), "analyzer-bot")),
-  ANALYZER_IMAGE: z.string().min(1).default("apollo-filter-ai-sandbox:latest"),
-  ANALYZER_DOCKERFILE: z
-    .string()
-    .min(1)
-    .default(path.resolve(process.cwd(), "dockerfiles/ai.Dockerfile")),
-  OPENCODE_AUTH_FILE: z
-    .string()
-    .min(1)
-    .default(path.resolve(process.env.HOME ?? "", ".local/share/opencode/auth.json")),
-  OPENCODE_CONFIG_DIR: z
-    .string()
-    .min(1)
-    .default(path.resolve(process.cwd(), ".sandbox/opencode/config")),
-  OPENCODE_DATA_DIR: z
-    .string()
-    .min(1)
-    .default(path.resolve(process.cwd(), ".sandbox/opencode/data"))
+  OPENCODE_SERVER_URL: z.string().min(1).default("http://127.0.0.1:3000"),
+  ANALYZER_NODE_OPTIONS: z.string().min(1).default("--max-old-space-size=4096")
 });
 
 export const env = EnvSchema.parse(process.env);

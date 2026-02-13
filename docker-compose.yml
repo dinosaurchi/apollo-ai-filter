@@ -16,6 +16,28 @@ services:
       timeout: 5s
       retries: 10
 
+  opencode:
+    build:
+      context: ./backend
+      dockerfile: dockerfiles/ai.Dockerfile
+    container_name: apollo-opencode
+    command: opencode serve --hostname 0.0.0.0 --port 3000
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+    volumes:
+      - ./backend/ai-workspace:/workspace
+      - ${HOME}/.config/opencode:/home/agent/.config/opencode
+      - ${HOME}/.local/share/opencode:/home/agent/.local/share/opencode
   backend:
     build:
       context: ./backend
@@ -24,12 +46,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      opencode:
+        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 3000
+      NODE_OPTIONS: --max-old-space-size=4096
       DATABASE_URL: postgres://app:app@postgres:5432/app
       OUTPUT_ROOT: /app/data/output-docker
       ANALYZE_SCRIPT_DIR: /app/analyzer-bot
+      OPENCODE_SERVER_URL: http://opencode:3000
+      ANALYZER_NODE_OPTIONS: --max-old-space-size=4096
     ports:
       - "3000:3000"
     volumes:

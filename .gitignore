@@ -12,3 +12,6 @@ coverage
 data
 postgres-data
 backend/data/output-docker
+backend/.sandbox
+backend/ai-workspace/*
+!backend/ai-workspace/.gitkeep

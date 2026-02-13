@@ -1240,7 +1240,7 @@ async function runAiTextStep(ctx: RunContext, step: AiTextStep): Promise<{ outPa
             await writeJson(path.resolve(batchDir, `attempt-${String(attempt).padStart(2, "0")}.response.json`), reply.response);
             await writeText(path.resolve(batchDir, `attempt-${String(attempt).padStart(2, "0")}.raw.txt`), reply.text);
             try {
-              const parsed = extractJsonArray(reply.text);
+              const parsed = extractJsonArray(reply.text, ["id", "decision", "confidence"]);
               if (!Array.isArray(parsed)) throw new Error("Expected JSON array");
               arr = parsed;
               break;

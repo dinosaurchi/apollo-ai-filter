@@ -84,6 +84,10 @@ button:disabled {
   color: #ff9aa9;
 }
 
+.warn-list {
+  color: #ffd67a;
+}
+
 .table-wrap {
   overflow-x: auto;
   margin-top: 0.75rem;
@@ -108,10 +112,25 @@ td {
   border-radius: 12px;
   background: #111a2d;
   color: #e8ecf1;
+  margin: 0;
+  max-height: 85vh;
+  overflow: auto;
+  position: relative;
+  z-index: 10001;
 }
 
 .dialog::backdrop {
   background: rgb(0 0 0 / 65%);
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgb(0 0 0 / 65%);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
 }
 
 .dialog header {
