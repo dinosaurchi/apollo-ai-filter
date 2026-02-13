@@ -28,8 +28,12 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://app:app@postgres:5432/app
+      OUTPUT_ROOT: /app/data/output-docker
+      ANALYZE_SCRIPT_DIR: /app/analyzer-bot
     ports:
       - "3000:3000"
+    volumes:
+      - ./backend/data/output-docker:/app/data/output-docker
 
   frontend:
     build:

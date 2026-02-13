@@ -11,3 +11,4 @@ coverage
 # Runtime data
 data
 postgres-data
+backend/data/output-docker

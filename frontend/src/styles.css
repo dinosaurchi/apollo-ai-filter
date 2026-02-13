@@ -11,12 +11,11 @@
 body {
   margin: 0;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
 }
 
-.container {
-  width: min(720px, 92vw);
+.app-shell {
+  width: min(1280px, 96vw);
+  margin: 1.5rem auto;
   padding: 2rem;
   border-radius: 12px;
   background: #111a2d;
@@ -26,4 +25,113 @@ body {
 .status {
   margin-top: 1rem;
   font-weight: 600;
+}
+
+.panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #2b3b5d;
+  border-radius: 10px;
+  background: #0d1628;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+button {
+  background: #243b63;
+  color: #e8ecf1;
+  border: 1px solid #3f5f92;
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+
+button.active {
+  background: #3a5b8f;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dropzone {
+  border: 1px dashed #526c97;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.config-input {
+  width: 100%;
+  min-height: 220px;
+  margin-top: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #2b3b5d;
+  background: #0d1628;
+  color: #e8ecf1;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.error-list,
+.error {
+  color: #ff9aa9;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid #2b3b5d;
+  padding: 0.45rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.dialog {
+  width: min(1200px, 95vw);
+  border: 1px solid #2b3b5d;
+  border-radius: 12px;
+  background: #111a2d;
+  color: #e8ecf1;
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
+.dialog header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.dialog-body {
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.log-box {
+  white-space: pre-wrap;
+  background: #0a111f;
+  border: 1px solid #2b3b5d;
+  border-radius: 8px;
+  padding: 0.6rem;
+  max-height: 35vh;
+  overflow: auto;
 }

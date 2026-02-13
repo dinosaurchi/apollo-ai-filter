@@ -10,6 +10,8 @@ COPY tsconfig.build.json ./
 COPY eslint.config.mjs ./
 COPY vitest.config.ts ./
 COPY src ./src
+COPY analyzer-bot ./analyzer-bot
+COPY dockerfiles ./dockerfiles
 
 RUN pnpm build
 
@@ -21,6 +23,8 @@ COPY package.json ./
 RUN pnpm install --prod
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/analyzer-bot ./analyzer-bot
+COPY --from=build /app/dockerfiles ./dockerfiles
 
 ENV NODE_ENV=production
 EXPOSE 3000
