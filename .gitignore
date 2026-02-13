@@ -1,3 +1,13 @@
-.env
 node_modules
+dist
+coverage
+.DS_Store
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Runtime data
 data
+postgres-data

@@ -1,0 +1,23 @@
+import { app } from "./app";
+import { env } from "./config";
+import { pool } from "./db";
+
+const server = app.listen(env.PORT, () => {
+  console.log(`Backend listening on http://localhost:${env.PORT}`);
+});
+
+async function shutdown(signal: string): Promise<void> {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
