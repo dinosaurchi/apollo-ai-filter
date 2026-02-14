@@ -27,6 +27,7 @@ type RunDetail = {
   progress: RunSummary["progress"];
   logs: Array<{ ts: string; source: string; line: string }>;
   analysisRunDir: string | null;
+  inputConfigJson?: string;
 };
 
 type CompanyRow = {
@@ -212,7 +213,7 @@ export function App() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetail | null>(null);
   const [selectedRunCompanies, setSelectedRunCompanies] = useState<CompanyRow[]>([]);
-  const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies">("overview");
+  const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies" | "input_json">("overview");
 
   const [allCompanies, setAllCompanies] = useState<CompanyRow[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
@@ -599,6 +600,12 @@ export function App() {
             >
               Companies
             </button>
+            <button
+              className={runDetailTab === "input_json" ? "active" : ""}
+              onClick={() => setRunDetailTab("input_json")}
+            >
+              Input JSON
+            </button>
           </div>
           {runDetailTab === "overview" ? (
             <div className="dialog-body">
@@ -613,7 +620,7 @@ export function App() {
                 {selectedRunDetail.logs.slice(-60).map((log) => `[${log.ts}] ${log.source} ${log.line}`).join("\n")}
               </pre>
             </div>
-          ) : (
+          ) : runDetailTab === "companies" ? (
             <div className="table-wrap">
               <table>
                 <thead>
@@ -637,6 +644,14 @@ export function App() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          ) : (
+            <div className="dialog-body">
+              <pre className="log-box">
+                {selectedRunDetail.inputConfigJson?.trim().length
+                  ? selectedRunDetail.inputConfigJson
+                  : "No original input JSON was captured for this run."}
+              </pre>
             </div>
           )}
           </dialog>

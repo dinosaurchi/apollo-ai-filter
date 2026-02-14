@@ -3,6 +3,8 @@ import { checkDbConnection } from "./db";
 import multer from "multer";
 import { env } from "./config";
 import { RunManager } from "./run-manager";
+import fsp from "node:fs/promises";
+import path from "node:path";
 
 export const app = express();
 export const runManager = new RunManager(
@@ -118,12 +120,24 @@ app.get("/runs/stream", (req, res) => {
 });
 
 app.get("/runs/:id", (req, res) => {
-  const run = runManager.getRun(req.params.id);
-  if (!run) {
-    res.status(404).json({ ok: false, error: "Run not found" });
-    return;
-  }
-  res.json({ ok: true, run });
+  void (async () => {
+    const run = runManager.getRun(req.params.id);
+    if (!run) {
+      res.status(404).json({ ok: false, error: "Run not found" });
+      return;
+    }
+    let inputConfigJson = "";
+    const inputConfigPath = path.resolve(run.runRootDir, "input", "config.original.json");
+    try {
+      inputConfigJson = await fsp.readFile(inputConfigPath, "utf8");
+    } catch {
+      // Keep empty string when original config is unavailable.
+    }
+    res.json({ ok: true, run: { ...run, inputConfigJson } });
+  })().catch((error) => {
+    const message = error instanceof Error ? error.message : "Failed to load run";
+    res.status(500).json({ ok: false, error: message });
+  });
 });
 
 app.post("/runs/:id/cancel", async (req, res, next) => {
