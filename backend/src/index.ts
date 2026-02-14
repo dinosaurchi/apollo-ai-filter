@@ -1,6 +1,6 @@
 import { app, runManagerReady } from "./app";
 import { env } from "./config";
-import { prisma } from "./db";
+import { closeDb } from "./db";
 
 const startServer = async (): Promise<void> => {
   await runManagerReady;
@@ -11,7 +11,7 @@ const startServer = async (): Promise<void> => {
   async function shutdown(signal: string): Promise<void> {
     console.log(`Received ${signal}. Shutting down gracefully...`);
     server.close(async () => {
-      await prisma.$disconnect();
+      await closeDb();
       process.exit(0);
     });
   }

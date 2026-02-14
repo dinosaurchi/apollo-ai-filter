@@ -4,6 +4,7 @@ RUN corepack enable
 
 COPY package.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN pnpm install
 
 COPY tsconfig.json ./
@@ -26,6 +27,7 @@ RUN corepack enable
 
 COPY package.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN pnpm install --prod
 RUN pnpm prisma:generate
 
@@ -35,6 +37,7 @@ COPY --from=build /app/analyzer-bot/dist ./analyzer-bot/dist
 COPY --from=build /app/analyzer-bot/contracts ./analyzer-bot/contracts
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 RUN pnpm -C analyzer-bot install --prod --no-frozen-lockfile
 COPY --from=build /app/dockerfiles ./dockerfiles
 
