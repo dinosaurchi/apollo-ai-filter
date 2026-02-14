@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  companyId    String   @id @map("company_id") @db.Text
+  companyName  String   @default("") @map("company_name") @db.Text
+  companyDomain String  @default("") @map("company_domain") @db.Text
+  decision     String   @default("") @db.Text
+  confidence   String   @default("") @db.Text
+  evidence     String   @default("") @db.Text
+  raw          String   @default("") @db.Text
+  sourceRunId  String   @default("") @map("source_run_id") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("companies")
+}
+
+model Person {
+  personId     String   @id @map("person_id") @db.Text
+  companyId    String   @default("") @map("company_id") @db.Text
+  fullName     String   @default("") @map("full_name") @db.Text
+  title        String   @default("") @db.Text
+  email        String   @default("") @db.Text
+  linkedinUrl  String   @default("") @map("linkedin_url") @db.Text
+  location     String   @default("") @db.Text
+  raw          String   @default("") @db.Text
+  sourceRunId  String   @default("") @map("source_run_id") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([companyId], map: "idx_people_company_id")
+  @@map("people")
+}
+
+model ReviewCompany {
+  id          String    @id @db.Text
+  companyId   String    @map("company_id") @db.Text
+  fieldName   String    @map("field_name") @db.Text
+  oldValue    String    @default("") @map("old_value") @db.Text
+  newValue    String    @default("") @map("new_value") @db.Text
+  sourceRunId String    @default("") @map("source_run_id") @db.Text
+  status      String    @default("pending") @db.Text
+  resolution  String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt(sort: Desc)], map: "idx_review_company_pending")
+  @@map("review_company")
+}
+
+model ReviewPeople {
+  id          String    @id @db.Text
+  personId    String    @map("person_id") @db.Text
+  fieldName   String    @map("field_name") @db.Text
+  oldValue    String    @default("") @map("old_value") @db.Text
+  newValue    String    @default("") @map("new_value") @db.Text
+  sourceRunId String    @default("") @map("source_run_id") @db.Text
+  status      String    @default("pending") @db.Text
+  resolution  String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt(sort: Desc)], map: "idx_review_people_pending")
+  @@map("review_people")
+}
+
+model RunIngestion {
+  runId             String    @id @map("run_id") @db.Text
+  status            String    @default("pending") @db.Text
+  attemptCount      Int       @default(0) @map("attempt_count")
+  lastError         String    @default("") @map("last_error") @db.Text
+  lastAttemptAt     DateTime? @map("last_attempt_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  companyRowsWritten Int      @default(0) @map("company_rows_written")
+  peopleRowsWritten Int       @default(0) @map("people_rows_written")
+  companiesIngested Boolean   @default(false) @map("companies_ingested")
+  peopleIngested    Boolean   @default(false) @map("people_ingested")
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, updatedAt(sort: Desc)], map: "idx_run_ingestion_status")
+  @@map("run_ingestion")
+}

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { pool } from "./db";
+import { execSql, queryRows } from "./db";
 
 type CompanyRecord = {
   run_id?: string;
@@ -14,6 +14,25 @@ type CompanyRecord = {
 
 type PersonRecord = Record<string, string>;
 type IngestionState = "pending" | "ingesting" | "completed" | "failed";
+
+const COMPANY_MUTABLE_FIELDS = new Set([
+  "company_name",
+  "company_domain",
+  "decision",
+  "confidence",
+  "evidence",
+  "raw"
+]);
+
+const PEOPLE_MUTABLE_FIELDS = new Set([
+  "company_id",
+  "full_name",
+  "title",
+  "email",
+  "linkedin_url",
+  "location",
+  "raw"
+]);
 
 export type RunIngestionRecord = {
   run_id: string;
@@ -50,6 +69,15 @@ function buildPersonId(row: PersonRecord): string {
   return `generated:${randomUUID()}`;
 }
 
+export function assertAllowedFieldName(field: string, type: "company" | "people"): string {
+  const normalized = field.trim();
+  const allowed = type === "company" ? COMPANY_MUTABLE_FIELDS : PEOPLE_MUTABLE_FIELDS;
+  if (!allowed.has(normalized)) {
+    throw new Error(`Unsupported ${type} field for dynamic update: ${field}`);
+  }
+  return normalized;
+}
+
 async function ensureNoDuplicatePendingReview(
   table: "review_company" | "review_people",
   entityCol: "company_id" | "person_id",
@@ -58,11 +86,11 @@ async function ensureNoDuplicatePendingReview(
   oldValue: string,
   newValue: string
 ): Promise<boolean> {
-  const existing = await pool.query(
+  const existing = await queryRows<{ id: string }>(
     `SELECT id FROM ${table} WHERE ${entityCol} = $1 AND field_name = $2 AND old_value = $3 AND new_value = $4 AND status = 'pending' LIMIT 1`,
     [entityId, fieldName, oldValue, newValue]
   );
-  return existing.rows.length > 0;
+  return existing.length > 0;
 }
 
 export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Promise<number> {
@@ -79,9 +107,9 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
     const companyId = norm(row.company_id);
     if (!companyId) continue;
     processed += 1;
-    const existing = await pool.query("SELECT * FROM companies WHERE company_id = $1", [companyId]);
-    if (existing.rows.length === 0) {
-      await pool.query(
+    const existing = await queryRows<Record<string, unknown>>("SELECT * FROM companies WHERE company_id = $1", [companyId]);
+    if (existing.length === 0) {
+      await execSql(
         `INSERT INTO companies (
           company_id, company_name, company_domain, decision, confidence, evidence, raw, source_run_id
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -98,7 +126,7 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
       );
       continue;
     }
-    const current = existing.rows[0] as Record<string, string>;
+    const current = existing[0] as Record<string, string>;
     const updates: string[] = [];
     const values: string[] = [];
     for (const field of fields) {
@@ -118,7 +146,7 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
           newValue
         );
         if (!hasPending) {
-          await pool.query(
+          await execSql(
             `INSERT INTO review_company (
               id, company_id, field_name, old_value, new_value, source_run_id, status
             ) VALUES ($1,$2,$3,$4,$5,$6,'pending')`,
@@ -128,7 +156,7 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
       }
     }
     if (updates.length > 0) {
-      await pool.query(
+      await execSql(
         `UPDATE companies SET ${updates.join(", ")}, source_run_id = $${values.length + 1}, updated_at = NOW() WHERE company_id = $${values.length + 2}`,
         [...values, runId, companyId]
       );
@@ -152,9 +180,9 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
       location: norm(row.location),
       raw: JSON.stringify(row)
     };
-    const existing = await pool.query("SELECT * FROM people WHERE person_id = $1", [personId]);
-    if (existing.rows.length === 0) {
-      await pool.query(
+    const existing = await queryRows<Record<string, unknown>>("SELECT * FROM people WHERE person_id = $1", [personId]);
+    if (existing.length === 0) {
+      await execSql(
         `INSERT INTO people (
           person_id, company_id, full_name, title, email, linkedin_url, location, raw, source_run_id
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
@@ -172,7 +200,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
       );
       continue;
     }
-    const current = existing.rows[0] as Record<string, string>;
+    const current = existing[0] as Record<string, string>;
     const updates: string[] = [];
     const values: string[] = [];
     for (const field of fields) {
@@ -192,7 +220,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
           newValue
         );
         if (!hasPending) {
-          await pool.query(
+          await execSql(
             `INSERT INTO review_people (
               id, person_id, field_name, old_value, new_value, source_run_id, status
             ) VALUES ($1,$2,$3,$4,$5,$6,'pending')`,
@@ -202,7 +230,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
       }
     }
     if (updates.length > 0) {
-      await pool.query(
+      await execSql(
         `UPDATE people SET ${updates.join(", ")}, source_run_id = $${values.length + 1}, updated_at = NOW() WHERE person_id = $${values.length + 2}`,
         [...values, runId, personId]
       );
@@ -212,7 +240,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
 }
 
 export async function markRunIngestionInProgress(runId: string): Promise<void> {
-  await pool.query(
+  await execSql(
     `INSERT INTO run_ingestion (
       run_id, status, attempt_count, last_error, last_attempt_at, updated_at
     ) VALUES ($1, 'ingesting', 1, '', NOW(), NOW())
@@ -227,7 +255,7 @@ export async function markRunIngestionInProgress(runId: string): Promise<void> {
 }
 
 export async function markRunIngestionPending(runId: string, companiesDone: boolean, peopleDone: boolean): Promise<void> {
-  await pool.query(
+  await execSql(
     `INSERT INTO run_ingestion (
       run_id, status, companies_ingested, people_ingested, updated_at
     ) VALUES ($1,'pending',$2,$3,NOW())
@@ -247,7 +275,7 @@ export async function markRunIngestionCompleted(
   companyRows: number,
   peopleRows: number
 ): Promise<void> {
-  await pool.query(
+  await execSql(
     `INSERT INTO run_ingestion (
       run_id, status, companies_ingested, people_ingested, company_rows_written, people_rows_written, completed_at, updated_at
     ) VALUES ($1, 'completed', $2, $3, $4, $5, NOW(), NOW())
@@ -265,7 +293,7 @@ export async function markRunIngestionCompleted(
 }
 
 export async function markRunIngestionFailed(runId: string, errorMessage: string): Promise<void> {
-  await pool.query(
+  await execSql(
     `INSERT INTO run_ingestion (
       run_id, status, last_error, updated_at
     ) VALUES ($1, 'failed', $2, NOW())
@@ -278,7 +306,7 @@ export async function markRunIngestionFailed(runId: string, errorMessage: string
 }
 
 export async function getRunIngestion(runId: string): Promise<RunIngestionRecord | null> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT
       run_id,
       status,
@@ -295,7 +323,7 @@ export async function getRunIngestion(runId: string): Promise<RunIngestionRecord
     WHERE run_id = $1`,
     [runId]
   );
-  const row = result.rows[0] as Record<string, unknown> | undefined;
+  const row = result[0] as Record<string, unknown> | undefined;
   if (!row) return null;
   return {
     run_id: String(row.run_id ?? ""),
@@ -314,7 +342,7 @@ export async function getRunIngestion(runId: string): Promise<RunIngestionRecord
 
 export async function listRunIngestionRecords(limit = 200): Promise<RunIngestionRecord[]> {
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 1000) : 200;
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT
       run_id,
       status,
@@ -332,7 +360,7 @@ export async function listRunIngestionRecords(limit = 200): Promise<RunIngestion
     LIMIT $1`,
     [safeLimit]
   );
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     run_id: String(row.run_id ?? ""),
     status: (String(row.status ?? "pending") as IngestionState),
     attempt_count: Number(row.attempt_count ?? 0),
@@ -348,7 +376,7 @@ export async function listRunIngestionRecords(limit = 200): Promise<RunIngestion
 }
 
 export async function getRunIngestionSummary(): Promise<Record<string, number>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT status, COUNT(*)::int AS count
      FROM run_ingestion
      GROUP BY status`
@@ -360,7 +388,7 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
     failed: 0,
     total: 0
   };
-  for (const row of result.rows) {
+  for (const row of result) {
     const status = String(row.status ?? "");
     const count = Number(row.count ?? 0);
     summary[status] = count;
@@ -370,11 +398,11 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
 }
 
 export async function listCompaniesFromDb(): Promise<Array<Record<string, string>>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT company_id, company_name, company_domain, evidence, raw, source_run_id
      FROM companies ORDER BY updated_at DESC, company_name ASC`
   );
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     run_id: String(row.source_run_id ?? ""),
     company_id: String(row.company_id ?? ""),
     company_name: String(row.company_name ?? ""),
@@ -385,7 +413,7 @@ export async function listCompaniesFromDb(): Promise<Array<Record<string, string
 }
 
 export async function listPeopleFromDb(): Promise<Array<Record<string, string>>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT
         p.person_id,
         p.company_id,
@@ -400,7 +428,7 @@ export async function listPeopleFromDb(): Promise<Array<Record<string, string>>>
      LEFT JOIN companies c ON c.company_id = p.company_id
      ORDER BY p.updated_at DESC, p.full_name ASC`
   );
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     run_id: String(row.source_run_id ?? ""),
     person_id: String(row.person_id ?? ""),
     company_id: String(row.company_id ?? ""),
@@ -414,7 +442,7 @@ export async function listPeopleFromDb(): Promise<Array<Record<string, string>>>
 }
 
 export async function listPeopleByCompanyFromDb(companyId: string): Promise<Array<Record<string, string>>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT
       p.person_id,
       p.company_id,
@@ -431,7 +459,7 @@ export async function listPeopleByCompanyFromDb(companyId: string): Promise<Arra
      ORDER BY p.updated_at DESC, p.full_name ASC`,
     [companyId]
   );
-  return result.rows.map((row) => ({
+  return result.map((row) => ({
     run_id: String(row.source_run_id ?? ""),
     person_id: String(row.person_id ?? ""),
     company_id: String(row.company_id ?? ""),
@@ -445,52 +473,54 @@ export async function listPeopleByCompanyFromDb(companyId: string): Promise<Arra
 }
 
 export async function listCompanyReviews(): Promise<Array<Record<string, string>>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT id, company_id, field_name, old_value, new_value, source_run_id, status, COALESCE(resolution, '') AS resolution, created_at
      FROM review_company
      WHERE status = 'pending'
      ORDER BY created_at DESC`
   );
-  return result.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));
+  return result.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));
 }
 
 export async function listPeopleReviews(): Promise<Array<Record<string, string>>> {
-  const result = await pool.query(
+  const result = await queryRows<Record<string, unknown>>(
     `SELECT id, person_id, field_name, old_value, new_value, source_run_id, status, COALESCE(resolution, '') AS resolution, created_at
      FROM review_people
      WHERE status = 'pending'
      ORDER BY created_at DESC`
   );
-  return result.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));
+  return result.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));
 }
 
 export async function resolveCompanyReview(id: string, decision: "keep_old" | "keep_new"): Promise<void> {
-  const result = await pool.query("SELECT * FROM review_company WHERE id = $1 AND status = 'pending' LIMIT 1", [id]);
-  if (result.rows.length === 0) return;
-  const review = result.rows[0] as Record<string, string>;
+  const result = await queryRows<Record<string, unknown>>("SELECT * FROM review_company WHERE id = $1 AND status = 'pending' LIMIT 1", [id]);
+  if (result.length === 0) return;
+  const review = result[0] as Record<string, string>;
   if (decision === "keep_new") {
-    await pool.query(
-      `UPDATE companies SET ${review.field_name} = $1, updated_at = NOW() WHERE company_id = $2`,
+    const fieldName = assertAllowedFieldName(String(review.field_name ?? ""), "company");
+    await execSql(
+      `UPDATE companies SET ${fieldName} = $1, updated_at = NOW() WHERE company_id = $2`,
       [review.new_value, review.company_id]
     );
   }
-  await pool.query(
+  await execSql(
     `UPDATE review_company SET status = 'resolved', resolution = $1, resolved_at = NOW() WHERE id = $2`,
     [decision, id]
   );
 }
 
 export async function resolvePeopleReview(id: string, decision: "keep_old" | "keep_new"): Promise<void> {
-  const result = await pool.query("SELECT * FROM review_people WHERE id = $1 AND status = 'pending' LIMIT 1", [id]);
-  if (result.rows.length === 0) return;
-  const review = result.rows[0] as Record<string, string>;
+  const result = await queryRows<Record<string, unknown>>("SELECT * FROM review_people WHERE id = $1 AND status = 'pending' LIMIT 1", [id]);
+  if (result.length === 0) return;
+  const review = result[0] as Record<string, string>;
   if (decision === "keep_new") {
-    await pool.query(
-      `UPDATE people SET ${review.field_name} = $1, updated_at = NOW() WHERE person_id = $2`,
+    const fieldName = assertAllowedFieldName(String(review.field_name ?? ""), "people");
+    await execSql(
+      `UPDATE people SET ${fieldName} = $1, updated_at = NOW() WHERE person_id = $2`,
       [review.new_value, review.person_id]
     );
   }
-  await pool.query(
+  await execSql(
     `UPDATE review_people SET status = 'resolved', resolution = $1, resolved_at = NOW() WHERE id = $2`,
     [decision, id]
   );

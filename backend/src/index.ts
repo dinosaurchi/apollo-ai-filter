@@ -1,9 +1,8 @@
 import { app, runManagerReady } from "./app";
 import { env } from "./config";
-import { initDbSchema, pool } from "./db";
+import { prisma } from "./db";
 
 const startServer = async (): Promise<void> => {
-  await initDbSchema();
   await runManagerReady;
   const server = app.listen(env.PORT, () => {
     console.log(`Backend listening on http://localhost:${env.PORT}`);
@@ -12,7 +11,7 @@ const startServer = async (): Promise<void> => {
   async function shutdown(signal: string): Promise<void> {
     console.log(`Received ${signal}. Shutting down gracefully...`);
     server.close(async () => {
-      await pool.end();
+      await prisma.$disconnect();
       process.exit(0);
     });
   }
