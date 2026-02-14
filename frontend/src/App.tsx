@@ -347,6 +347,40 @@ async function apiGet<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function apiGetWithProgress<T>(
+  path: string,
+  onProgress: (percent: number | null) => void
+): Promise<T> {
+  const response = await fetch(`/api${path}`);
+  if (!response.ok) throw new Error(await response.text());
+  const totalHeader = response.headers?.get?.("content-length") ?? "0";
+  const total = Number.parseInt(totalHeader, 10);
+  if (!response.body) {
+    onProgress(null);
+    return (await response.json()) as T;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let loaded = 0;
+  let text = "";
+  onProgress(total > 0 ? 0 : null);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      loaded += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+      if (total > 0) {
+        const pct = Math.max(0, Math.min(99, Math.round((loaded / total) * 100)));
+        onProgress(pct);
+      }
+    }
+  }
+  text += decoder.decode();
+  if (total > 0) onProgress(100);
+  return JSON.parse(text) as T;
+}
+
 export function App() {
   const [view, setView] = useState<ViewName>(() => getViewFromHash());
   const [backendHealth, setBackendHealth] = useState("Checking backend...");
@@ -363,6 +397,9 @@ export function App() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetail | null>(null);
   const [selectedRunCompanies, setSelectedRunCompanies] = useState<CompanyRow[]>([]);
+  const [runCompaniesLoading, setRunCompaniesLoading] = useState(false);
+  const [runCompaniesProgress, setRunCompaniesProgress] = useState<number | null>(null);
+  const [runCompaniesError, setRunCompaniesError] = useState("");
   const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies" | "input_json">("overview");
   const [runsPage, setRunsPage] = useState(1);
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -585,10 +622,32 @@ export function App() {
 
   async function loadRunDetail(runId: string): Promise<void> {
     setSelectedRunId(runId);
+    setRunDetailTab("overview");
+    setSelectedRunCompanies([]);
+    setRunCompaniesLoading(false);
+    setRunCompaniesProgress(null);
+    setRunCompaniesError("");
     const detail = await apiGet<{ ok: boolean; run: RunDetail }>(`/runs/${runId}`);
     setSelectedRunDetail(detail.run);
-    const companies = await apiGet<{ ok: boolean; companies: CompanyRow[] }>(`/runs/${runId}/companies`);
-    setSelectedRunCompanies(companies.companies);
+  }
+
+  async function loadRunCompanies(runId: string): Promise<void> {
+    if (runCompaniesLoading) return;
+    setRunCompaniesLoading(true);
+    setRunCompaniesError("");
+    setRunCompaniesProgress(null);
+    try {
+      const companies = await apiGetWithProgress<{ ok: boolean; companies: CompanyRow[] }>(
+        `/runs/${runId}/companies`,
+        (percent) => setRunCompaniesProgress(percent)
+      );
+      setSelectedRunCompanies(companies.companies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load companies";
+      setRunCompaniesError(message);
+    } finally {
+      setRunCompaniesLoading(false);
+    }
   }
 
   async function openCompanyDetail(company: CompanyRow): Promise<void> {
@@ -902,11 +961,31 @@ export function App() {
       )}
 
       {selectedRunDetail && (
-        <div className="dialog-overlay" role="presentation" onClick={() => setSelectedRunDetail(null)}>
+        <div
+          className="dialog-overlay"
+          role="presentation"
+          onClick={() => {
+            setSelectedRunDetail(null);
+            setSelectedRunCompanies([]);
+            setRunCompaniesLoading(false);
+            setRunCompaniesProgress(null);
+            setRunCompaniesError("");
+          }}
+        >
           <dialog open className="dialog" onClick={(event) => event.stopPropagation()}>
           <header>
             <strong>Run Detail: {selectedRunDetail.id}</strong>
-            <button onClick={() => setSelectedRunDetail(null)}>Close</button>
+            <button
+              onClick={() => {
+                setSelectedRunDetail(null);
+                setSelectedRunCompanies([]);
+                setRunCompaniesLoading(false);
+                setRunCompaniesProgress(null);
+                setRunCompaniesError("");
+              }}
+            >
+              Close
+            </button>
           </header>
           <div className="tabs">
             <button
@@ -917,7 +996,12 @@ export function App() {
             </button>
             <button
               className={runDetailTab === "companies" ? "active" : ""}
-              onClick={() => setRunDetailTab("companies")}
+              onClick={() => {
+                setRunDetailTab("companies");
+                if (selectedRunId && selectedRunCompanies.length === 0) {
+                  void loadRunCompanies(selectedRunId);
+                }
+              }}
             >
               Companies
             </button>
@@ -972,6 +1056,13 @@ export function App() {
             </div>
           ) : runDetailTab === "companies" ? (
             <div className="table-wrap">
+              {runCompaniesLoading && (
+                <p className="status">
+                  Loading companies
+                  {runCompaniesProgress !== null ? `... ${runCompaniesProgress}%` : "..."}
+                </p>
+              )}
+              {runCompaniesError && <p className="error">{runCompaniesError}</p>}
               <table>
                 <thead>
                   <tr>
@@ -983,6 +1074,11 @@ export function App() {
                   </tr>
                 </thead>
                 <tbody>
+                  {!runCompaniesLoading && selectedRunCompanies.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>No company rows loaded for this run yet.</td>
+                    </tr>
+                  )}
                   {selectedRunCompanies.map((company) => (
                     <tr key={`${company.run_id}-${company.company_id}`}>
                       <td>{company.company_name}</td>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
@@ -199,5 +199,109 @@ describe("App", () => {
 
     expect(await screen.findByText("21-25 of 25")).toBeInTheDocument();
     expect(screen.getByText("run-21")).toBeInTheDocument();
+  });
+
+  it("loads run companies only when companies tab is opened", async () => {
+    class EventSourceMock {
+      public addEventListener(): void {}
+      public close(): void {}
+    }
+    vi.stubGlobal("EventSource", EventSourceMock);
+    window.location.hash = "#/runs";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/health")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            runs: [
+              {
+                id: "run-1",
+                status: "completed",
+                createdAt: "2026-02-14T20:00:00.000Z",
+                updatedAt: "2026-02-14T20:01:00.000Z",
+                inputFileName: "example.csv",
+                progress: {
+                  totalSteps: 5,
+                  completedSteps: 5,
+                  currentStep: null,
+                  message: "Completed"
+                },
+                error: null,
+                pid: null
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs/run-1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            run: {
+              id: "run-1",
+              status: "completed",
+              inputFileName: "example.csv",
+              createdAt: "2026-02-14T20:00:00.000Z",
+              updatedAt: "2026-02-14T20:01:00.000Z",
+              error: null,
+              progress: {
+                totalSteps: 5,
+                completedSteps: 5,
+                currentStep: null,
+                message: "Completed"
+              },
+              logs: [],
+              analysisRunDir: "/tmp/output/run-1",
+              inputConfigJson: "{}",
+              stepSummaries: []
+            }
+          })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs/run-1/companies")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            companies: [
+              {
+                run_id: "run-1",
+                company_id: "cmp-1",
+                company_name: "Acme Lending",
+                company_domain: "acme.test",
+                decision: "yes",
+                confidence: "high",
+                evidence: "evidence"
+              }
+            ]
+          })
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ ok: true })
+      } as Response;
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Detail" }));
+    expect(await screen.findByText("Run Detail: run-1")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((call) => call[0].toString().endsWith("/api/runs/run-1/companies"))).toBe(false);
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Companies" }));
+
+    expect(await screen.findByText("Acme Lending")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((call) => call[0].toString().endsWith("/api/runs/run-1/companies"))).toBe(true);
   });
 });
