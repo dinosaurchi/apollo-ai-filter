@@ -197,6 +197,149 @@ app.get("/runs/:id", (req, res) => {
   });
 });
 
+app.get("/runs/:id/overview", (req, res) => {
+  void (async () => {
+    const run = runManager.getRun(req.params.id);
+    if (!run) {
+      res.status(404).json({ ok: false, error: "Run not found" });
+      return;
+    }
+    let inputConfigJson = "";
+    const inputConfigPath = path.resolve(run.runRootDir, "input", "config.original.json");
+    try {
+      inputConfigJson = await fsp.readFile(inputConfigPath, "utf8");
+    } catch {
+      // Keep empty string when original config is unavailable.
+    }
+    res.json({
+      ok: true,
+      run: {
+        id: run.id,
+        status: run.status,
+        inputFileName: run.inputFileName,
+        createdAt: run.createdAt,
+        updatedAt: run.updatedAt,
+        error: run.error,
+        progress: run.progress,
+        analysisRunDir: run.analysisRunDir,
+        inputConfigJson
+      }
+    });
+  })().catch((error) => {
+    const message = error instanceof Error ? error.message : "Failed to load run overview";
+    res.status(500).json({ ok: false, error: message });
+  });
+});
+
+app.post("/runs/:id/heavy/step-summaries/start", (req, res, next) => {
+  try {
+    const job = runManager.startStepSummariesJob(req.params.id);
+    res.status(202).json({ ok: true, jobId: job.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/runs/:id/heavy/step-summaries/progress", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = runManager.getStepSummariesJob(req.params.id, jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Step summaries job not found" });
+    return;
+  }
+  res.json({
+    ok: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      percent: job.percent,
+      steps: job.steps,
+      error: job.error
+    }
+  });
+});
+
+app.get("/runs/:id/heavy/step-summaries/result", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = runManager.getStepSummariesJob(req.params.id, jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Step summaries job not found" });
+    return;
+  }
+  if (job.status === "failed") {
+    res.status(500).json({ ok: false, error: job.error ?? "Step summaries job failed" });
+    return;
+  }
+  if (job.status !== "completed" || !job.result) {
+    res.status(202).json({ ok: true, ready: false });
+    return;
+  }
+  res.json({ ok: true, ready: true, stepSummaries: job.result });
+});
+
+app.post("/runs/:id/heavy/logs/start", (req, res, next) => {
+  try {
+    const job = runManager.startLogsJob(req.params.id);
+    res.status(202).json({ ok: true, jobId: job.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/runs/:id/heavy/logs/progress", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = runManager.getLogsJob(req.params.id, jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Logs job not found" });
+    return;
+  }
+  res.json({
+    ok: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      percent: job.percent,
+      loaded: job.loaded,
+      total: job.total,
+      error: job.error
+    }
+  });
+});
+
+app.get("/runs/:id/heavy/logs/result", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = runManager.getLogsJob(req.params.id, jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Logs job not found" });
+    return;
+  }
+  if (job.status === "failed") {
+    res.status(500).json({ ok: false, error: job.error ?? "Logs job failed" });
+    return;
+  }
+  if (job.status !== "completed" || !job.result) {
+    res.status(202).json({ ok: true, ready: false });
+    return;
+  }
+  res.json({ ok: true, ready: true, logs: job.result });
+});
+
 app.post("/runs/:id/cancel", async (req, res, next) => {
   try {
     const run = await runManager.cancelRun(req.params.id);

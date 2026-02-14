@@ -48,7 +48,7 @@ describe("App", () => {
     }
     vi.stubGlobal("EventSource", EventSourceMock);
     window.location.hash = "#/runs";
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/health")) {
         return {
@@ -81,7 +81,7 @@ describe("App", () => {
           })
         } as Response;
       }
-      if (url.endsWith("/api/runs/run-1")) {
+      if (url.endsWith("/api/runs/run-1/overview")) {
         return {
           ok: true,
           json: async () => ({
@@ -102,25 +102,66 @@ describe("App", () => {
               logs: [],
               analysisRunDir: "/tmp/output/run-1",
               inputConfigJson: "{}",
-              stepSummaries: [
-                {
-                  id: "02-ai-text-A2",
-                  type: "ai_text",
-                  title: "02-ai-text-A2",
-                  inputRows: 10,
-                  outputRows: 8,
-                  progressValue: "8/10",
-                  status: "finished"
-                }
-              ]
+              stepSummaries: []
             }
           })
         } as Response;
       }
-      if (url.endsWith("/api/runs/run-1/companies")) {
+      if (url.endsWith("/api/runs/run-1/heavy/step-summaries/start") && (init?.method ?? "GET") === "POST") {
         return {
           ok: true,
-          json: async () => ({ ok: true, companies: [] })
+          json: async () => ({ ok: true, jobId: "step-job-1" })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/step-summaries/progress?jobId=step-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            job: {
+              status: "completed",
+              percent: 100,
+              steps: []
+            }
+          })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/step-summaries/result?jobId=step-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            ready: true,
+            stepSummaries: [
+              {
+                id: "02-ai-text-A2",
+                type: "ai_text",
+                title: "02-ai-text-A2",
+                inputRows: 10,
+                outputRows: 8,
+                progressValue: "8/10",
+                status: "finished"
+              }
+            ]
+          })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs/run-1/heavy/logs/start") && (init?.method ?? "GET") === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, jobId: "logs-job-1" })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/logs/progress?jobId=logs-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, job: { status: "completed", percent: 100 } })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/logs/result?jobId=logs-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, ready: true, logs: [] })
         } as Response;
       }
       return {
@@ -208,7 +249,7 @@ describe("App", () => {
     }
     vi.stubGlobal("EventSource", EventSourceMock);
     window.location.hash = "#/runs";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/health")) {
         return {
@@ -241,7 +282,7 @@ describe("App", () => {
           })
         } as Response;
       }
-      if (url.endsWith("/api/runs/run-1")) {
+      if (url.endsWith("/api/runs/run-1/overview")) {
         return {
           ok: true,
           json: async () => ({
@@ -265,6 +306,42 @@ describe("App", () => {
               stepSummaries: []
             }
           })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs/run-1/heavy/step-summaries/start") && (init?.method ?? "GET") === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, jobId: "step-job-1" })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/step-summaries/progress?jobId=step-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, job: { status: "completed", percent: 100, steps: [] } })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/step-summaries/result?jobId=step-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, ready: true, stepSummaries: [] })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs/run-1/heavy/logs/start") && (init?.method ?? "GET") === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, jobId: "logs-job-1" })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/logs/progress?jobId=logs-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, job: { status: "completed", percent: 100 } })
+        } as Response;
+      }
+      if (url.includes("/api/runs/run-1/heavy/logs/result?jobId=logs-job-1")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, ready: true, logs: [] })
         } as Response;
       }
       if (url.endsWith("/api/runs/run-1/companies")) {

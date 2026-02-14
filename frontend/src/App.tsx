@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 type RunSummary = {
@@ -37,6 +37,14 @@ type RunDetail = {
     progressValue: string | null;
     status: "not_started" | "running" | "cancelled" | "failed" | "finished";
   }>;
+};
+
+type StepSummaryJobProgress = {
+  id: string;
+  title: string;
+  type: string;
+  status: "pending" | "running" | "finished" | "failed";
+  percent: number;
 };
 
 type CompanyRow = {
@@ -347,6 +355,12 @@ async function apiGet<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function apiPost<T>(path: string): Promise<T> {
+  const response = await fetch(`/api${path}`, { method: "POST" });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as T;
+}
+
 async function apiGetWithProgress<T>(
   path: string,
   onProgress: (percent: number | null) => void
@@ -396,11 +410,21 @@ export function App() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetail | null>(null);
+  const [runDetailLoading, setRunDetailLoading] = useState(false);
+  const [runDetailError, setRunDetailError] = useState("");
   const [selectedRunCompanies, setSelectedRunCompanies] = useState<CompanyRow[]>([]);
   const [runCompaniesLoading, setRunCompaniesLoading] = useState(false);
   const [runCompaniesProgress, setRunCompaniesProgress] = useState<number | null>(null);
   const [runCompaniesError, setRunCompaniesError] = useState("");
+  const [stepSummariesLoading, setStepSummariesLoading] = useState(false);
+  const [stepSummariesProgress, setStepSummariesProgress] = useState<number>(0);
+  const [stepSummariesProgressSteps, setStepSummariesProgressSteps] = useState<StepSummaryJobProgress[]>([]);
+  const [stepSummariesError, setStepSummariesError] = useState("");
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsProgress, setLogsProgress] = useState<number>(0);
+  const [logsError, setLogsError] = useState("");
   const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies" | "input_json">("overview");
+  const activeRunDetailIdRef = useRef<string | null>(null);
   const [runsPage, setRunsPage] = useState(1);
   const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -452,7 +476,16 @@ export function App() {
         return next;
       });
       if (selectedRunId === updated.id) {
-        void loadRunDetail(updated.id);
+        setSelectedRunDetail((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: updated.status,
+            updatedAt: updated.updatedAt,
+            error: updated.error,
+            progress: updated.progress
+          };
+        });
       }
     });
     return () => sse.close();
@@ -620,15 +653,114 @@ export function App() {
     await refreshRuns();
   }
 
-  async function loadRunDetail(runId: string): Promise<void> {
-    setSelectedRunId(runId);
+  async function loadRunDetail(run: RunSummary): Promise<void> {
+    setSelectedRunId(run.id);
+    activeRunDetailIdRef.current = run.id;
     setRunDetailTab("overview");
+    setRunDetailLoading(true);
+    setRunDetailError("");
+    setSelectedRunDetail({
+      id: run.id,
+      status: run.status,
+      inputFileName: run.inputFileName,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      error: run.error,
+      progress: run.progress,
+      logs: [],
+      analysisRunDir: null,
+      inputConfigJson: "",
+      stepSummaries: []
+    });
     setSelectedRunCompanies([]);
     setRunCompaniesLoading(false);
     setRunCompaniesProgress(null);
     setRunCompaniesError("");
-    const detail = await apiGet<{ ok: boolean; run: RunDetail }>(`/runs/${runId}`);
-    setSelectedRunDetail(detail.run);
+    setStepSummariesLoading(true);
+    setStepSummariesProgress(0);
+    setStepSummariesProgressSteps([]);
+    setStepSummariesError("");
+    setLogsLoading(true);
+    setLogsProgress(0);
+    setLogsError("");
+    try {
+      const detail = await apiGet<{ ok: boolean; run: RunDetail }>(`/runs/${run.id}/overview`);
+      setSelectedRunDetail((prev) => ({ ...(prev ?? detail.run), ...detail.run }));
+      void startStepSummariesLoad(run.id);
+      void startLogsLoad(run.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load run detail";
+      setRunDetailError(message);
+    } finally {
+      setRunDetailLoading(false);
+    }
+  }
+
+  async function startStepSummariesLoad(runId: string): Promise<void> {
+    setStepSummariesLoading(true);
+    try {
+      const started = await apiPost<{ ok: boolean; jobId: string }>(`/runs/${runId}/heavy/step-summaries/start`);
+      const jobId = started.jobId;
+      while (activeRunDetailIdRef.current === runId) {
+        const progress = await apiGet<{
+          ok: boolean;
+          job: { status: "running" | "completed" | "failed"; percent: number; steps: StepSummaryJobProgress[]; error?: string };
+        }>(`/runs/${runId}/heavy/step-summaries/progress?jobId=${encodeURIComponent(jobId)}`);
+        setStepSummariesProgress(progress.job.percent);
+        setStepSummariesProgressSteps(progress.job.steps ?? []);
+        if (progress.job.status === "failed") {
+          throw new Error(progress.job.error ?? "Step summaries job failed");
+        }
+        if (progress.job.status === "completed") {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      const result = await apiGet<{ ok: boolean; ready: boolean; stepSummaries: RunDetail["stepSummaries"] }>(
+        `/runs/${runId}/heavy/step-summaries/result?jobId=${encodeURIComponent(jobId)}`
+      );
+      if (result.ready) {
+        setSelectedRunDetail((prev) => (prev ? { ...prev, stepSummaries: result.stepSummaries ?? [] } : prev));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed loading step summaries";
+      setStepSummariesError(message);
+    } finally {
+      setStepSummariesLoading(false);
+    }
+  }
+
+  async function startLogsLoad(runId: string): Promise<void> {
+    setLogsLoading(true);
+    try {
+      const started = await apiPost<{ ok: boolean; jobId: string }>(`/runs/${runId}/heavy/logs/start`);
+      const jobId = started.jobId;
+      while (activeRunDetailIdRef.current === runId) {
+        const progress = await apiGet<{
+          ok: boolean;
+          job: { status: "running" | "completed" | "failed"; percent: number; error?: string };
+        }>(`/runs/${runId}/heavy/logs/progress?jobId=${encodeURIComponent(jobId)}`);
+        setLogsProgress(progress.job.percent);
+        if (progress.job.status === "failed") {
+          throw new Error(progress.job.error ?? "Logs job failed");
+        }
+        if (progress.job.status === "completed") {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      const result = await apiGet<{ ok: boolean; ready: boolean; logs: Array<{ ts: string; source: string; line: string }> }>(
+        `/runs/${runId}/heavy/logs/result?jobId=${encodeURIComponent(jobId)}`
+      );
+      if (result.ready) {
+        setSelectedRunDetail((prev) => (prev ? { ...prev, logs: result.logs ?? [] } : prev));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed loading logs";
+      setLogsError(message);
+    } finally {
+      setLogsLoading(false);
+    }
   }
 
   async function loadRunCompanies(runId: string): Promise<void> {
@@ -786,7 +918,7 @@ export function App() {
                       {(run.status === "running" || run.status === "queued") && (
                         <button onClick={() => void cancelRun(run.id)}>Cancel</button>
                       )}
-                      <button onClick={() => void loadRunDetail(run.id)}>Detail</button>
+                      <button onClick={() => void loadRunDetail(run)}>Detail</button>
                     </td>
                   </tr>
                 ))}
@@ -965,11 +1097,20 @@ export function App() {
           className="dialog-overlay"
           role="presentation"
           onClick={() => {
+            activeRunDetailIdRef.current = null;
+            setSelectedRunId(null);
             setSelectedRunDetail(null);
             setSelectedRunCompanies([]);
             setRunCompaniesLoading(false);
             setRunCompaniesProgress(null);
             setRunCompaniesError("");
+            setStepSummariesLoading(false);
+            setStepSummariesProgress(0);
+            setStepSummariesProgressSteps([]);
+            setStepSummariesError("");
+            setLogsLoading(false);
+            setLogsProgress(0);
+            setLogsError("");
           }}
         >
           <dialog open className="dialog" onClick={(event) => event.stopPropagation()}>
@@ -977,11 +1118,20 @@ export function App() {
             <strong>Run Detail: {selectedRunDetail.id}</strong>
             <button
               onClick={() => {
+                activeRunDetailIdRef.current = null;
+                setSelectedRunId(null);
                 setSelectedRunDetail(null);
                 setSelectedRunCompanies([]);
                 setRunCompaniesLoading(false);
                 setRunCompaniesProgress(null);
                 setRunCompaniesError("");
+                setStepSummariesLoading(false);
+                setStepSummariesProgress(0);
+                setStepSummariesProgressSteps([]);
+                setStepSummariesError("");
+                setLogsLoading(false);
+                setLogsProgress(0);
+                setLogsError("");
               }}
             >
               Close
@@ -1014,12 +1164,44 @@ export function App() {
           </div>
           {runDetailTab === "overview" ? (
             <div className="dialog-body">
+              {runDetailLoading && <p className="status">Loading run overview...</p>}
+              {runDetailError && <p className="error">{runDetailError}</p>}
               <p>Status: {selectedRunDetail.status}</p>
               <p>
                 Progress: {selectedRunDetail.progress.completedSteps}/{selectedRunDetail.progress.totalSteps}
               </p>
               <p>Message: {selectedRunDetail.progress.message}</p>
               <p>Artifacts: {selectedRunDetail.analysisRunDir ?? "-"}</p>
+              {stepSummariesLoading && (
+                <p className="status">Loading step summaries... {stepSummariesProgress}%</p>
+              )}
+              {stepSummariesError && <p className="error">{stepSummariesError}</p>}
+              {stepSummariesLoading && stepSummariesProgressSteps.length > 0 && (
+                <div className="table-wrap">
+                  <table className="step-summary-table">
+                    <thead>
+                      <tr>
+                        <th>Step</th>
+                        <th>Type</th>
+                        <th>Progress</th>
+                        <th>Input Rows</th>
+                        <th>Output Rows</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stepSummariesProgressSteps.map((step) => (
+                        <tr key={step.id}>
+                          <td>{step.title}</td>
+                          <td>{step.type}</td>
+                          <td>{step.percent}% <span className={`status-pill status-${step.status === "running" ? "running" : step.status === "failed" ? "failed" : step.status === "finished" ? "finished" : "not_started"}`}>{step.status}</span></td>
+                          <td>-</td>
+                          <td>-</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {selectedRunDetail.stepSummaries && selectedRunDetail.stepSummaries.length > 0 && (
                 <div className="table-wrap">
                   <table className="step-summary-table">
@@ -1050,6 +1232,8 @@ export function App() {
                 </div>
               )}
               {selectedRunDetail.error && <p className="error">{selectedRunDetail.error}</p>}
+              {logsLoading && <p className="status">Loading logs... {logsProgress}%</p>}
+              {logsError && <p className="error">{logsError}</p>}
               <pre className="log-box">
                 {selectedRunDetail.logs.slice(-60).map((log) => `[${log.ts}] ${log.source} ${log.line}`).join("\n")}
               </pre>

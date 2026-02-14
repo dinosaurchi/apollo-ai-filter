@@ -7,6 +7,7 @@ import { parseCsv, type CsvRow, toSnakeCase } from "./csv";
 import { collectRequiredInputFields, RunConfigSchema, type RunConfig } from "./run-config";
 
 type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+type HeavyJobStatus = "running" | "completed" | "failed";
 
 type RunProgress = {
   totalSteps: number;
@@ -82,6 +83,37 @@ export type RunStepSummary = {
   outputRows: number | null;
   progressValue: string | null;
   status: "not_started" | "running" | "cancelled" | "failed" | "finished";
+};
+
+export type StepSummaryJobStep = {
+  id: string;
+  title: string;
+  type: string;
+  status: "pending" | "running" | "finished" | "failed";
+  percent: number;
+};
+
+export type StepSummaryJob = {
+  id: string;
+  runId: string;
+  status: HeavyJobStatus;
+  percent: number;
+  steps: StepSummaryJobStep[];
+  result: RunStepSummary[] | null;
+  error: string | null;
+  updatedAt: string;
+};
+
+export type LogsJob = {
+  id: string;
+  runId: string;
+  status: HeavyJobStatus;
+  percent: number;
+  loaded: number;
+  total: number;
+  result: RunLog[] | null;
+  error: string | null;
+  updatedAt: string;
 };
 
 type RunningProc = {
@@ -279,6 +311,8 @@ export class RunManager extends EventEmitter {
   private readonly runs = new Map<string, RunMeta>();
   private readonly running = new Map<string, RunningProc>();
   private readonly queue: string[] = [];
+  private readonly stepSummaryJobs = new Map<string, StepSummaryJob>();
+  private readonly logsJobs = new Map<string, LogsJob>();
   private analyzerReady = false;
 
   public constructor(
@@ -402,6 +436,67 @@ export class RunManager extends EventEmitter {
 
   public getRun(runId: string): RunMeta | null {
     return this.runs.get(runId) ?? null;
+  }
+
+  public startStepSummariesJob(runId: string): StepSummaryJob {
+    const meta = this.runs.get(runId);
+    if (!meta) throw new Error(`Run not found: ${runId}`);
+    const id = randomUUID();
+    const now = nowIso();
+    const steps: StepSummaryJobStep[] = meta.config.steps.map((step) => ({
+      id: step.id,
+      title: step.id,
+      type: step.type,
+      status: "pending",
+      percent: 0
+    }));
+    const job: StepSummaryJob = {
+      id,
+      runId,
+      status: "running",
+      percent: 0,
+      steps,
+      result: null,
+      error: null,
+      updatedAt: now
+    };
+    this.stepSummaryJobs.set(id, job);
+    void this.executeStepSummariesJob(job);
+    return job;
+  }
+
+  public getStepSummariesJob(runId: string, jobId: string): StepSummaryJob | null {
+    const job = this.stepSummaryJobs.get(jobId);
+    if (!job || job.runId !== runId) return null;
+    return job;
+  }
+
+  public startLogsJob(runId: string): LogsJob {
+    const meta = this.runs.get(runId);
+    if (!meta) throw new Error(`Run not found: ${runId}`);
+    const id = randomUUID();
+    const now = nowIso();
+    const total = meta.logs.length;
+    const job: LogsJob = {
+      id,
+      runId,
+      status: "running",
+      percent: 0,
+      loaded: 0,
+      total,
+      result: null,
+      error: null,
+      updatedAt: now
+    };
+    this.logsJobs.set(id, job);
+    void this.executeLogsJob(job);
+    return job;
+  }
+
+  public getLogsJob(runId: string, jobId: string): LogsJob | null {
+    const job = this.logsJobs.get(jobId);
+    if (!job || job.runId !== runId) return null;
+    return job;
   }
 
   public async cancelRun(runId: string): Promise<RunSummary> {
@@ -682,6 +777,194 @@ export class RunManager extends EventEmitter {
         };
       })
     );
+  }
+
+  private async executeStepSummariesJob(job: StepSummaryJob): Promise<void> {
+    const meta = this.runs.get(job.runId);
+    if (!meta) {
+      job.status = "failed";
+      job.error = `Run not found: ${job.runId}`;
+      job.updatedAt = nowIso();
+      return;
+    }
+    try {
+      let analysisRunDir = meta.analysisRunDir;
+      if (!analysisRunDir) {
+        analysisRunDir = await newestChildDirectory(meta.analysisOutputRoot);
+        if (!analysisRunDir) {
+          job.result = [];
+          job.status = "completed";
+          job.percent = 100;
+          job.updatedAt = nowIso();
+          return;
+        }
+        meta.analysisRunDir = analysisRunDir;
+        meta.updatedAt = nowIso();
+        await this.persistMeta(meta);
+      }
+
+      const startedSteps = new Set<string>();
+      const completedSteps = new Set<string>();
+      const stepProgress = new Map<string, { done: number; total: number }>();
+      const setProgress = (stepId: string, done: number | null, total: number | null): void => {
+        if (done === null || total === null) return;
+        const safeDone = Math.max(0, Math.floor(done));
+        const safeTotal = Math.max(0, Math.floor(total));
+        stepProgress.set(stepId, {
+          done: safeTotal > 0 ? Math.min(safeDone, safeTotal) : 0,
+          total: safeTotal
+        });
+      };
+      for (const log of meta.logs) {
+        const parsed = parseAnalyzeLine(log.line);
+        if (!parsed || typeof parsed.details?.step !== "string") continue;
+        const stepId = parsed.details.step;
+        if (parsed.message === "executing step") startedSteps.add(stepId);
+        if (parsed.message.endsWith("step completed")) completedSteps.add(stepId);
+        if (parsed.message.endsWith("batching prepared")) {
+          const batches = typeof parsed.details?.batches === "number" ? parsed.details.batches : null;
+          setProgress(stepId, 0, batches);
+        }
+        if (parsed.message.endsWith("batch completed")) {
+          const idx = typeof parsed.details?.batch_index === "number" ? parsed.details.batch_index : null;
+          const prev = stepProgress.get(stepId);
+          setProgress(stepId, idx === null ? prev?.done ?? 0 : idx + 1, prev?.total ?? null);
+        }
+        if (parsed.message === "filter input loaded") {
+          const rows = typeof parsed.details?.rows === "number" ? parsed.details.rows : null;
+          setProgress(stepId, 0, rows);
+        }
+        if (parsed.message === "filter step completed") {
+          const inCount = typeof parsed.details?.in_count === "number" ? parsed.details.in_count : null;
+          setProgress(stepId, inCount, inCount);
+        }
+        if (parsed.message === "ai_text input loaded" || parsed.message === "web_ai input loaded") {
+          const rows = typeof parsed.details?.rows === "number" ? parsed.details.rows : null;
+          const prev = stepProgress.get(stepId);
+          setProgress(stepId, prev?.done ?? 0, prev?.total ?? rows);
+        }
+        if (parsed.message === "ai_text step completed" || parsed.message === "web_ai step completed") {
+          const inCount = typeof parsed.details?.in_count === "number" ? parsed.details.in_count : null;
+          setProgress(stepId, inCount, inCount);
+        }
+        if (parsed.message === "apollo_people step completed") {
+          const companies = typeof parsed.details?.selected_high_yes_companies === "number"
+            ? parsed.details.selected_high_yes_companies
+            : null;
+          setProgress(stepId, companies, companies);
+        }
+      }
+
+      const stepOrder = meta.config.steps.map((step) => step.id);
+      const currentStep = typeof meta.progress.currentStep === "string" ? meta.progress.currentStep : null;
+      const currentFromProgress = currentStep && stepOrder.includes(currentStep) ? currentStep : null;
+      const currentFromLogs = [...stepOrder].reverse().find((stepId) => startedSteps.has(stepId) && !completedSteps.has(stepId)) ?? null;
+      const activeStepId = currentFromProgress ?? currentFromLogs;
+
+      const totalUnits = Math.max(1, meta.config.steps.length * 2);
+      let finishedUnits = 0;
+      const summaries: RunStepSummary[] = [];
+      for (const stepConfig of meta.config.steps) {
+        const jobStep = job.steps.find((s) => s.id === stepConfig.id);
+        if (jobStep) {
+          jobStep.status = "running";
+          jobStep.percent = 0;
+          job.updatedAt = nowIso();
+        }
+        const stepDir = path.resolve(analysisRunDir, "steps", stepConfig.id);
+
+        const inPath = path.resolve(stepDir, "in.csv");
+        const inputRows = (await pathExists(inPath)) ? parseCsv(await fsp.readFile(inPath, "utf8")).rows.length : null;
+        finishedUnits += 1;
+        if (jobStep) jobStep.percent = 50;
+        job.percent = Math.round((finishedUnits / totalUnits) * 100);
+        job.updatedAt = nowIso();
+
+        const outPath = path.resolve(stepDir, "out.csv");
+        const outputRows = (await pathExists(outPath)) ? parseCsv(await fsp.readFile(outPath, "utf8")).rows.length : null;
+        finishedUnits += 1;
+        if (jobStep) {
+          jobStep.percent = 100;
+          jobStep.status = "finished";
+        }
+        job.percent = Math.round((finishedUnits / totalUnits) * 100);
+        job.updatedAt = nowIso();
+
+        const inferStatus = (): RunStepSummary["status"] => {
+          if (meta.status === "queued") return "not_started";
+          if (meta.status === "running") {
+            if (completedSteps.has(stepConfig.id)) return "finished";
+            if (stepConfig.id === activeStepId) return "running";
+            if (startedSteps.has(stepConfig.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          if (meta.status === "completed") return "finished";
+          if (meta.status === "failed") {
+            if (completedSteps.has(stepConfig.id)) return "finished";
+            if (stepConfig.id === activeStepId) return "failed";
+            if (startedSteps.has(stepConfig.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          if (meta.status === "cancelled") {
+            if (completedSteps.has(stepConfig.id)) return "finished";
+            if (stepConfig.id === activeStepId) return "cancelled";
+            if (startedSteps.has(stepConfig.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          return "not_started";
+        };
+        const metric = stepProgress.get(stepConfig.id);
+        summaries.push({
+          id: stepConfig.id,
+          type: stepConfig.type,
+          title: stepConfig.id,
+          inputRows,
+          outputRows,
+          progressValue: metric ? `${metric.done}/${metric.total}` : null,
+          status: inferStatus()
+        });
+      }
+
+      job.result = summaries;
+      job.status = "completed";
+      job.percent = 100;
+      job.updatedAt = nowIso();
+    } catch (error) {
+      job.status = "failed";
+      job.error = error instanceof Error ? error.message : String(error);
+      job.updatedAt = nowIso();
+    }
+  }
+
+  private async executeLogsJob(job: LogsJob): Promise<void> {
+    const meta = this.runs.get(job.runId);
+    if (!meta) {
+      job.status = "failed";
+      job.error = `Run not found: ${job.runId}`;
+      job.updatedAt = nowIso();
+      return;
+    }
+    try {
+      const logs: RunLog[] = [];
+      const chunkSize = 25;
+      const total = meta.logs.length;
+      for (let i = 0; i < total; i += chunkSize) {
+        logs.push(...meta.logs.slice(i, i + chunkSize));
+        job.loaded = Math.min(i + chunkSize, total);
+        job.total = total;
+        job.percent = total > 0 ? Math.round((job.loaded / total) * 100) : 100;
+        job.updatedAt = nowIso();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      job.result = logs;
+      job.status = "completed";
+      job.percent = 100;
+      job.updatedAt = nowIso();
+    } catch (error) {
+      job.status = "failed";
+      job.error = error instanceof Error ? error.message : String(error);
+      job.updatedAt = nowIso();
+    }
   }
 
   public async getAllCompanies(): Promise<Array<Record<string, string>>> {
