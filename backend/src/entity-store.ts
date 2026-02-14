@@ -17,11 +17,7 @@ type IngestionState = "pending" | "ingesting" | "completed" | "failed";
 
 const COMPANY_MUTABLE_FIELDS = new Set([
   "company_name",
-  "company_domain",
-  "decision",
-  "confidence",
-  "evidence",
-  "raw"
+  "company_domain"
 ]);
 
 const PEOPLE_MUTABLE_FIELDS = new Set([
@@ -30,8 +26,7 @@ const PEOPLE_MUTABLE_FIELDS = new Set([
   "title",
   "email",
   "linkedin_url",
-  "location",
-  "raw"
+  "location"
 ]);
 
 export type RunIngestionRecord = {
@@ -97,11 +92,7 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
   let processed = 0;
   const fields: Array<keyof CompanyRecord> = [
     "company_name",
-    "company_domain",
-    "decision",
-    "confidence",
-    "evidence",
-    "raw"
+    "company_domain"
   ];
   for (const row of rows) {
     const companyId = norm(row.company_id);
@@ -111,16 +102,12 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
     if (existing.length === 0) {
       await execSql(
         `INSERT INTO companies (
-          company_id, company_name, company_domain, decision, confidence, evidence, raw, source_run_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          company_id, company_name, company_domain, source_run_id
+        ) VALUES ($1,$2,$3,$4)`,
         [
           companyId,
           norm(row.company_name),
           norm(row.company_domain),
-          norm(row.decision),
-          norm(row.confidence),
-          norm(row.evidence),
-          norm(row.raw),
           runId
         ]
       );
@@ -167,7 +154,7 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
 
 export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise<number> {
   let processed = 0;
-  const fields = ["company_id", "full_name", "title", "email", "linkedin_url", "location", "raw"] as const;
+  const fields = ["company_id", "full_name", "title", "email", "linkedin_url", "location"] as const;
   for (const row of rows) {
     const personId = buildPersonId(row);
     processed += 1;
@@ -184,8 +171,8 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
     if (existing.length === 0) {
       await execSql(
         `INSERT INTO people (
-          person_id, company_id, full_name, title, email, linkedin_url, location, raw, source_run_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          person_id, company_id, full_name, title, email, linkedin_url, location, source_run_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           personId,
           candidate.company_id,
@@ -194,7 +181,6 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
           candidate.email,
           candidate.linkedin_url,
           candidate.location,
-          candidate.raw,
           runId
         ]
       );
@@ -399,7 +385,7 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
 
 export async function listCompaniesFromDb(): Promise<Array<Record<string, string>>> {
   const result = await queryRows<Record<string, unknown>>(
-    `SELECT company_id, company_name, company_domain, evidence, raw, source_run_id
+    `SELECT company_id, company_name, company_domain, source_run_id
      FROM companies ORDER BY updated_at DESC, company_name ASC`
   );
   return result.map((row) => ({
@@ -407,8 +393,8 @@ export async function listCompaniesFromDb(): Promise<Array<Record<string, string
     company_id: String(row.company_id ?? ""),
     company_name: String(row.company_name ?? ""),
     company_domain: String(row.company_domain ?? ""),
-    evidence: String(row.evidence ?? ""),
-    raw: String(row.raw ?? "")
+    evidence: "",
+    raw: ""
   }));
 }
 
@@ -476,7 +462,7 @@ export async function listCompanyReviews(): Promise<Array<Record<string, string>
   const result = await queryRows<Record<string, unknown>>(
     `SELECT id, company_id, field_name, old_value, new_value, source_run_id, status, COALESCE(resolution, '') AS resolution, created_at
      FROM review_company
-     WHERE status = 'pending'
+     WHERE status = 'pending' AND field_name IN ('company_name', 'company_domain')
      ORDER BY created_at DESC`
   );
   return result.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));
@@ -486,7 +472,7 @@ export async function listPeopleReviews(): Promise<Array<Record<string, string>>
   const result = await queryRows<Record<string, unknown>>(
     `SELECT id, person_id, field_name, old_value, new_value, source_run_id, status, COALESCE(resolution, '') AS resolution, created_at
      FROM review_people
-     WHERE status = 'pending'
+     WHERE status = 'pending' AND field_name IN ('company_id', 'full_name', 'title', 'email', 'linkedin_url', 'location')
      ORDER BY created_at DESC`
   );
   return result.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])));

@@ -35,10 +35,10 @@ type CompanyRow = {
   company_id: string;
   company_name: string;
   company_domain: string;
-  decision: string;
-  confidence: string;
-  evidence: string;
-  raw: string;
+  decision?: string;
+  confidence?: string;
+  evidence?: string;
+  raw?: string;
 };
 
 type PersonRow = Record<string, string>;
@@ -811,7 +811,7 @@ export function App() {
                       <td>{company.company_domain}</td>
                       <td>{company.decision}</td>
                       <td>{company.confidence}</td>
-                      <td className="value-wrap">{formatEvidence(company.evidence)}</td>
+                      <td className="value-wrap">{formatEvidence(company.evidence ?? "")}</td>
                     </tr>
                   ))}
                 </tbody>
