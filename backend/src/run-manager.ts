@@ -80,7 +80,7 @@ export type RunStepSummary = {
   title: string;
   inputRows: number | null;
   outputRows: number | null;
-  progressText: string;
+  progressValue: string | null;
   status: "not_started" | "running" | "cancelled" | "failed" | "finished";
 };
 
@@ -580,11 +580,58 @@ export class RunManager extends EventEmitter {
 
     const startedSteps = new Set<string>();
     const completedSteps = new Set<string>();
+    const stepProgress = new Map<string, { done: number; total: number }>();
+    const setProgress = (stepId: string, done: number | null, total: number | null): void => {
+      if (done === null || total === null) return;
+      const safeDone = Math.max(0, Math.floor(done));
+      const safeTotal = Math.max(0, Math.floor(total));
+      if (safeTotal === 0) {
+        stepProgress.set(stepId, { done: 0, total: 0 });
+        return;
+      }
+      stepProgress.set(stepId, { done: Math.min(safeDone, safeTotal), total: safeTotal });
+    };
     for (const log of meta.logs) {
       const parsed = parseAnalyzeLine(log.line);
       if (!parsed || typeof parsed.details?.step !== "string") continue;
+      const stepId = parsed.details.step;
       if (parsed.message === "executing step") startedSteps.add(parsed.details.step);
       if (parsed.message.endsWith("step completed")) completedSteps.add(parsed.details.step);
+
+      if (parsed.message.endsWith("batching prepared")) {
+        const batches = typeof parsed.details?.batches === "number" ? parsed.details.batches : null;
+        const prev = stepProgress.get(stepId);
+        setProgress(stepId, prev?.done ?? 0, batches);
+      }
+      if (parsed.message.endsWith("batch completed")) {
+        const idx = typeof parsed.details?.batch_index === "number" ? parsed.details.batch_index : null;
+        const prev = stepProgress.get(stepId);
+        const done = idx === null ? prev?.done ?? 0 : idx + 1;
+        setProgress(stepId, done, prev?.total ?? null);
+      }
+      if (parsed.message === "filter input loaded") {
+        const rows = typeof parsed.details?.rows === "number" ? parsed.details.rows : null;
+        setProgress(stepId, 0, rows);
+      }
+      if (parsed.message === "filter step completed") {
+        const inCount = typeof parsed.details?.in_count === "number" ? parsed.details.in_count : null;
+        setProgress(stepId, inCount, inCount);
+      }
+      if (parsed.message === "ai_text input loaded" || parsed.message === "web_ai input loaded") {
+        const rows = typeof parsed.details?.rows === "number" ? parsed.details.rows : null;
+        const prev = stepProgress.get(stepId);
+        setProgress(stepId, prev?.done ?? 0, prev?.total ?? rows);
+      }
+      if (parsed.message === "ai_text step completed" || parsed.message === "web_ai step completed") {
+        const inCount = typeof parsed.details?.in_count === "number" ? parsed.details.in_count : null;
+        setProgress(stepId, inCount, inCount);
+      }
+      if (parsed.message === "apollo_people step completed") {
+        const companies = typeof parsed.details?.selected_high_yes_companies === "number"
+          ? parsed.details.selected_high_yes_companies
+          : null;
+        setProgress(stepId, companies, companies);
+      }
     }
 
     const stepOrder = meta.config.steps.map((step) => step.id);
@@ -622,20 +669,15 @@ export class RunManager extends EventEmitter {
           return "not_started";
         };
         const status = inferStatus();
-        const progressText = (() => {
-          if (status === "finished") return "Completed";
-          if (status === "running") return "In progress";
-          if (status === "failed") return "Stopped (error)";
-          if (status === "cancelled") return "Cancelled";
-          return "Pending";
-        })();
+        const metric = stepProgress.get(step.id);
+        const progressValue = metric ? `${metric.done}/${metric.total}` : null;
         return {
           id: step.id,
           type: step.type,
           title: step.id,
           inputRows,
           outputRows,
-          progressText,
+          progressValue,
           status
         };
       })

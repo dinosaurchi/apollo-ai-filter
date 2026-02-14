@@ -34,7 +34,7 @@ type RunDetail = {
     title: string;
     inputRows: number | null;
     outputRows: number | null;
-    progressText: string;
+    progressValue: string | null;
     status: "not_started" | "running" | "cancelled" | "failed" | "finished";
   }>;
 };
@@ -836,7 +836,7 @@ export function App() {
                           <td>{step.title}</td>
                           <td>{step.type}</td>
                           <td>
-                            <span>{step.progressText}</span>{" "}
+                            <span>{step.progressValue ?? "-"}</span>{" "}
                             <span className={`status-pill status-${step.status}`}>{toStepStatusLabel(step.status)}</span>
                           </td>
                           <td>{step.inputRows ?? "-"}</td>

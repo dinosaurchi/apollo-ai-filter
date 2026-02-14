@@ -40,7 +40,7 @@ describe("GET /runs/:id", () => {
         title: "02-ai-text-A2",
         inputRows: 10,
         outputRows: 8,
-        progressText: "Completed",
+        progressValue: "8/10",
         status: "finished"
       }
     ]);
@@ -57,7 +57,7 @@ describe("GET /runs/:id", () => {
         title: "02-ai-text-A2",
         inputRows: 10,
         outputRows: 8,
-        progressText: "Completed",
+        progressValue: "8/10",
         status: "finished"
       }
     ]);
