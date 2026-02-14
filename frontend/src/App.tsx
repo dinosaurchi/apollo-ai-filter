@@ -667,10 +667,19 @@ export function App() {
           <h2>People</h2>
           <button onClick={() => void refreshPeople()}>Refresh</button>
           <div className="table-wrap">
-            <table>
+            <table className="people-table">
+              <colgroup>
+                <col className="col-company" />
+                <col className="col-apollo-id" />
+                <col className="col-name" />
+                <col className="col-title" />
+                <col className="col-email" />
+                <col className="col-linkedin" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Company</th>
+                  <th>Apollo ID</th>
                   <th>Name</th>
                   <th>Title</th>
                   <th>Email</th>
@@ -683,6 +692,7 @@ export function App() {
                     key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}`}
                   >
                     <td>{person.company_name ?? person.company_id ?? ""}</td>
+                    <td>{person.apollo_contact_id ?? person.person_id ?? ""}</td>
                     <td>{person.full_name ?? ""}</td>
                     <td>{person.title ?? ""}</td>
                     <td>{person.email ?? ""}</td>
@@ -909,9 +919,18 @@ export function App() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table className="company-people-table">
+                <colgroup>
+                  <col className="col-apollo-id" />
+                  <col className="col-name" />
+                  <col className="col-title" />
+                  <col className="col-email" />
+                  <col className="col-linkedin" />
+                  <col className="col-location" />
+                </colgroup>
                 <thead>
                   <tr>
+                    <th>Apollo ID</th>
                     <th>Name</th>
                     <th>Title</th>
                     <th>Email</th>
@@ -922,13 +941,14 @@ export function App() {
                 <tbody>
                   {selectedCompanyPeople.length === 0 && (
                     <tr>
-                      <td colSpan={5}>No people results for this company yet.</td>
+                      <td colSpan={6}>No people results for this company yet.</td>
                     </tr>
                   )}
                   {selectedCompanyPeople.map((person) => (
                     <tr
                       key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}-${person.full_name ?? ""}`}
                     >
+                      <td>{person.apollo_contact_id ?? person.person_id ?? ""}</td>
                       <td>{person.full_name ?? ""}</td>
                       <td>{person.title ?? ""}</td>
                       <td>{person.email ?? ""}</td>

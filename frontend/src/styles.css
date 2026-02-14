@@ -106,6 +106,64 @@ td {
   vertical-align: top;
 }
 
+.people-table,
+.company-people-table {
+  table-layout: fixed;
+}
+
+.people-table td,
+.company-people-table td {
+  overflow-wrap: anywhere;
+}
+
+.people-table .col-company {
+  width: 30%;
+}
+
+.people-table .col-apollo-id {
+  width: 12%;
+}
+
+.people-table .col-name {
+  width: 11%;
+}
+
+.people-table .col-title {
+  width: 39%;
+}
+
+.people-table .col-email {
+  width: 4%;
+}
+
+.people-table .col-linkedin {
+  width: 4%;
+}
+
+.company-people-table .col-apollo-id {
+  width: 16%;
+}
+
+.company-people-table .col-name {
+  width: 17%;
+}
+
+.company-people-table .col-title {
+  width: 37%;
+}
+
+.company-people-table .col-email {
+  width: 10%;
+}
+
+.company-people-table .col-linkedin {
+  width: 13%;
+}
+
+.company-people-table .col-location {
+  width: 7%;
+}
+
 .value-wrap {
   white-space: pre-wrap;
   word-break: break-word;
