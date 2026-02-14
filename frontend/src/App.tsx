@@ -671,7 +671,7 @@ export function App() {
                   <tr
                     key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}`}
                   >
-                    <td>{person.company_name ?? ""}</td>
+                    <td>{person.company_name ?? person.company_id ?? ""}</td>
                     <td>{person.full_name ?? ""}</td>
                     <td>{person.title ?? ""}</td>
                     <td>{person.email ?? ""}</td>
@@ -885,9 +885,14 @@ export function App() {
                   </tr>
                 </thead>
                 <tbody>
+                  {selectedCompanyPeople.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>No people results for this company yet.</td>
+                    </tr>
+                  )}
                   {selectedCompanyPeople.map((person) => (
                     <tr
-                      key={`${person.company_id ?? ""}-${person.apollo_person_id ?? ""}-${person.email ?? ""}-${person.full_name ?? ""}`}
+                      key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}-${person.full_name ?? ""}`}
                     >
                       <td>{person.full_name ?? ""}</td>
                       <td>{person.title ?? ""}</td>

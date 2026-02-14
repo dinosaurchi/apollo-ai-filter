@@ -144,7 +144,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
     const personId = buildPersonId(row);
     processed += 1;
     const candidate: Record<string, string> = {
-      company_id: norm(row.company_id),
+      company_id: norm(row.company_id) || norm(row.apollo_account_id) || norm(row.account_id),
       full_name: norm(row.full_name),
       title: norm(row.title),
       email: norm(row.email),
@@ -404,6 +404,7 @@ export async function listPeopleFromDb(): Promise<Array<Record<string, string>>>
     run_id: String(row.source_run_id ?? ""),
     person_id: String(row.person_id ?? ""),
     company_id: String(row.company_id ?? ""),
+    company_name: String(row.company_name ?? ""),
     full_name: String(row.full_name ?? ""),
     title: String(row.title ?? ""),
     email: String(row.email ?? ""),
@@ -414,14 +415,27 @@ export async function listPeopleFromDb(): Promise<Array<Record<string, string>>>
 
 export async function listPeopleByCompanyFromDb(companyId: string): Promise<Array<Record<string, string>>> {
   const result = await pool.query(
-    `SELECT person_id, company_id, full_name, title, email, linkedin_url, location, source_run_id
-     FROM people WHERE company_id = $1 ORDER BY updated_at DESC, full_name ASC`,
+    `SELECT
+      p.person_id,
+      p.company_id,
+      COALESCE(c.company_name, '') AS company_name,
+      p.full_name,
+      p.title,
+      p.email,
+      p.linkedin_url,
+      p.location,
+      p.source_run_id
+     FROM people p
+     LEFT JOIN companies c ON c.company_id = p.company_id
+     WHERE p.company_id = $1
+     ORDER BY p.updated_at DESC, p.full_name ASC`,
     [companyId]
   );
   return result.rows.map((row) => ({
     run_id: String(row.source_run_id ?? ""),
     person_id: String(row.person_id ?? ""),
     company_id: String(row.company_id ?? ""),
+    company_name: String(row.company_name ?? ""),
     full_name: String(row.full_name ?? ""),
     title: String(row.title ?? ""),
     email: String(row.email ?? ""),
