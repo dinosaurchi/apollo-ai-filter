@@ -1,13 +1,12 @@
 import { env } from "./config";
 import { PrismaClient } from "@prisma/client";
 
-export const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: env.DATABASE_URL
-    }
-  }
-});
+// Keep DATABASE_URL explicit in process env for Prisma client initialization.
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = env.DATABASE_URL;
+}
+
+export const prisma = new PrismaClient();
 
 export async function checkDbConnection(): Promise<boolean> {
   await prisma.$queryRaw`SELECT 1`;
