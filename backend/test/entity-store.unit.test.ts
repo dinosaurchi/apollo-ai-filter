@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertAllowedFieldName } from "../src/entity-store";
+import { assertAllowedFieldName, normalizeProfileJson } from "../src/entity-store";
 
 describe("assertAllowedFieldName", () => {
   it("allows known company fields", () => {
@@ -20,5 +20,18 @@ describe("assertAllowedFieldName", () => {
     expect(() => assertAllowedFieldName("raw", "company")).toThrow(/Unsupported company field/);
     expect(() => assertAllowedFieldName("raw", "people")).toThrow(/Unsupported people field/);
     expect(() => assertAllowedFieldName("drop table people", "people")).toThrow(/Unsupported people field/);
+  });
+});
+
+describe("normalizeProfileJson", () => {
+  it("normalizes valid object json", () => {
+    expect(normalizeProfileJson('{ "a": 1, "b": "x" }')).toBe('{"a":1,"b":"x"}');
+  });
+
+  it("drops invalid or non-object values", () => {
+    expect(normalizeProfileJson("")).toBe("");
+    expect(normalizeProfileJson("{bad-json")).toBe("");
+    expect(normalizeProfileJson("[1,2,3]")).toBe("");
+    expect(normalizeProfileJson('"str"')).toBe("");
   });
 });

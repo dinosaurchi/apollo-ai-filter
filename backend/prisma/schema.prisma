@@ -11,10 +11,7 @@ model Company {
   companyId    String   @id @map("company_id") @db.Text
   companyName  String   @default("") @map("company_name") @db.Text
   companyDomain String  @default("") @map("company_domain") @db.Text
-  decision     String   @default("") @db.Text
-  confidence   String   @default("") @db.Text
-  evidence     String   @default("") @db.Text
-  raw          String   @default("") @db.Text
+  profileJson  String   @default("") @map("profile_json") @db.Text
   sourceRunId  String   @default("") @map("source_run_id") @db.Text
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -30,7 +27,6 @@ model Person {
   email        String   @default("") @db.Text
   linkedinUrl  String   @default("") @map("linkedin_url") @db.Text
   location     String   @default("") @db.Text
-  raw          String   @default("") @db.Text
   sourceRunId  String   @default("") @map("source_run_id") @db.Text
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)

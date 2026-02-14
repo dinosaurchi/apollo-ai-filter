@@ -2,10 +2,7 @@ CREATE TABLE IF NOT EXISTS companies (
   company_id TEXT PRIMARY KEY,
   company_name TEXT NOT NULL DEFAULT '',
   company_domain TEXT NOT NULL DEFAULT '',
-  decision TEXT NOT NULL DEFAULT '',
-  confidence TEXT NOT NULL DEFAULT '',
-  evidence TEXT NOT NULL DEFAULT '',
-  raw TEXT NOT NULL DEFAULT '',
+  profile_json TEXT NOT NULL DEFAULT '',
   source_run_id TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -19,7 +16,6 @@ CREATE TABLE IF NOT EXISTS people (
   email TEXT NOT NULL DEFAULT '',
   linkedin_url TEXT NOT NULL DEFAULT '',
   location TEXT NOT NULL DEFAULT '',
-  raw TEXT NOT NULL DEFAULT '',
   source_run_id TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

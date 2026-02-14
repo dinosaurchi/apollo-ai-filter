@@ -51,6 +51,18 @@ function hasValue(value: string | undefined): boolean {
   return norm(value).length > 0;
 }
 
+export function normalizeProfileJson(raw: string | undefined): string {
+  const trimmed = norm(raw);
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+    return JSON.stringify(parsed);
+  } catch {
+    return "";
+  }
+}
+
 function buildPersonId(row: PersonRecord): string {
   const id = norm(row.apollo_person_id);
   if (id) return id;
@@ -98,16 +110,18 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
     const companyId = norm(row.company_id);
     if (!companyId) continue;
     processed += 1;
+    const profileJson = normalizeProfileJson(row.raw);
     const existing = await queryRows<Record<string, unknown>>("SELECT * FROM companies WHERE company_id = $1", [companyId]);
     if (existing.length === 0) {
       await execSql(
         `INSERT INTO companies (
-          company_id, company_name, company_domain, source_run_id
-        ) VALUES ($1,$2,$3,$4)`,
+          company_id, company_name, company_domain, profile_json, source_run_id
+        ) VALUES ($1,$2,$3,$4,$5)`,
         [
           companyId,
           norm(row.company_name),
           norm(row.company_domain),
+          profileJson,
           runId
         ]
       );
@@ -148,6 +162,13 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
         [...values, runId, companyId]
       );
     }
+    const currentProfileJson = norm(current.profile_json);
+    if (profileJson && profileJson !== currentProfileJson) {
+      await execSql(
+        "UPDATE companies SET profile_json = $1, source_run_id = $2, updated_at = NOW() WHERE company_id = $3",
+        [profileJson, runId, companyId]
+      );
+    }
   }
   return processed;
 }
@@ -164,8 +185,7 @@ export async function ingestPeople(runId: string, rows: PersonRecord[]): Promise
       title: norm(row.title),
       email: norm(row.email),
       linkedin_url: norm(row.linkedin_url),
-      location: norm(row.location),
-      raw: JSON.stringify(row)
+      location: norm(row.location)
     };
     const existing = await queryRows<Record<string, unknown>>("SELECT * FROM people WHERE person_id = $1", [personId]);
     if (existing.length === 0) {
@@ -385,7 +405,7 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
 
 export async function listCompaniesFromDb(): Promise<Array<Record<string, string>>> {
   const result = await queryRows<Record<string, unknown>>(
-    `SELECT company_id, company_name, company_domain, source_run_id
+    `SELECT company_id, company_name, company_domain, profile_json, source_run_id
      FROM companies ORDER BY updated_at DESC, company_name ASC`
   );
   return result.map((row) => ({
@@ -394,7 +414,7 @@ export async function listCompaniesFromDb(): Promise<Array<Record<string, string
     company_name: String(row.company_name ?? ""),
     company_domain: String(row.company_domain ?? ""),
     evidence: "",
-    raw: ""
+    raw: String(row.profile_json ?? "")
   }));
 }
 
