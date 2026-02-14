@@ -182,6 +182,7 @@ app.get("/runs/:id", (req, res) => {
       res.status(404).json({ ok: false, error: "Run not found" });
       return;
     }
+    const stepSummaries = await runManager.getRunStepSummaries(req.params.id);
     let inputConfigJson = "";
     const inputConfigPath = path.resolve(run.runRootDir, "input", "config.original.json");
     try {
@@ -189,7 +190,7 @@ app.get("/runs/:id", (req, res) => {
     } catch {
       // Keep empty string when original config is unavailable.
     }
-    res.json({ ok: true, run: { ...run, inputConfigJson } });
+    res.json({ ok: true, run: { ...run, inputConfigJson, stepSummaries } });
   })().catch((error) => {
     const message = error instanceof Error ? error.message : "Failed to load run";
     res.status(500).json({ ok: false, error: message });

@@ -74,6 +74,14 @@ type GetRunCompaniesOptions = {
   includeRaw?: boolean;
 };
 
+export type RunStepSummary = {
+  id: string;
+  type: string;
+  title: string;
+  inputRows: number | null;
+  outputRows: number | null;
+};
+
 type RunningProc = {
   runId: string;
   child: ChildProcessWithoutNullStreams;
@@ -546,6 +554,42 @@ export class RunManager extends EventEmitter {
     if (!(await pathExists(peoplePath))) return [];
     const parsed = parseCsv(await fsp.readFile(peoplePath, "utf8"));
     return parsed.rows.map((row) => ({ run_id: runId, ...row }));
+  }
+
+  public async getRunStepSummaries(runId: string): Promise<RunStepSummary[]> {
+    const meta = this.runs.get(runId);
+    if (!meta) throw new Error(`Run not found: ${runId}`);
+
+    let analysisRunDir = meta.analysisRunDir;
+    if (!analysisRunDir) {
+      analysisRunDir = await newestChildDirectory(meta.analysisOutputRoot);
+      if (!analysisRunDir) return [];
+      meta.analysisRunDir = analysisRunDir;
+      meta.updatedAt = nowIso();
+      await this.persistMeta(meta);
+      this.emitUpdate(meta);
+    }
+
+    const countRows = async (filePath: string): Promise<number | null> => {
+      if (!(await pathExists(filePath))) return null;
+      const content = await fsp.readFile(filePath, "utf8");
+      return parseCsv(content).rows.length;
+    };
+
+    return Promise.all(
+      meta.config.steps.map(async (step) => {
+        const stepDir = path.resolve(analysisRunDir, "steps", step.id);
+        const inputRows = await countRows(path.resolve(stepDir, "in.csv"));
+        const outputRows = await countRows(path.resolve(stepDir, "out.csv"));
+        return {
+          id: step.id,
+          type: step.type,
+          title: step.id,
+          inputRows,
+          outputRows
+        };
+      })
+    );
   }
 
   public async getAllCompanies(): Promise<Array<Record<string, string>>> {

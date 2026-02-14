@@ -28,6 +28,13 @@ type RunDetail = {
   logs: Array<{ ts: string; source: string; line: string }>;
   analysisRunDir: string | null;
   inputConfigJson?: string;
+  stepSummaries?: Array<{
+    id: string;
+    type: string;
+    title: string;
+    inputRows: number | null;
+    outputRows: number | null;
+  }>;
 };
 
 type CompanyRow = {
@@ -791,6 +798,30 @@ export function App() {
               </p>
               <p>Message: {selectedRunDetail.progress.message}</p>
               <p>Artifacts: {selectedRunDetail.analysisRunDir ?? "-"}</p>
+              {selectedRunDetail.stepSummaries && selectedRunDetail.stepSummaries.length > 0 && (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Step</th>
+                        <th>Type</th>
+                        <th>Input Rows</th>
+                        <th>Output Rows</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedRunDetail.stepSummaries.map((step) => (
+                        <tr key={step.id}>
+                          <td>{step.title}</td>
+                          <td>{step.type}</td>
+                          <td>{step.inputRows ?? "-"}</td>
+                          <td>{step.outputRows ?? "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {selectedRunDetail.error && <p className="error">{selectedRunDetail.error}</p>}
               <pre className="log-box">
                 {selectedRunDetail.logs.slice(-60).map((log) => `[${log.ts}] ${log.source} ${log.line}`).join("\n")}
