@@ -1,8 +1,9 @@
 import { app, runManagerReady } from "./app";
 import { env } from "./config";
-import { pool } from "./db";
+import { initDbSchema, pool } from "./db";
 
 const startServer = async (): Promise<void> => {
+  await initDbSchema();
   await runManagerReady;
   const server = app.listen(env.PORT, () => {
     console.log(`Backend listening on http://localhost:${env.PORT}`);

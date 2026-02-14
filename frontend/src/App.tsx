@@ -42,12 +42,13 @@ type CompanyRow = {
 };
 
 type PersonRow = Record<string, string>;
+type ReviewRow = Record<string, string>;
 
-type ViewName = "submit" | "runs" | "companies" | "people";
+type ViewName = "submit" | "runs" | "companies" | "people" | "reviews";
 
 function getViewFromHash(): ViewName {
   const h = window.location.hash.replace(/^#\/?/, "");
-  if (h === "runs" || h === "companies" || h === "people") return h;
+  if (h === "runs" || h === "companies" || h === "people" || h === "reviews") return h;
   return "submit";
 }
 
@@ -57,6 +58,15 @@ function toSnakeCase(value: string): string {
     .replace(/[^0-9A-Za-z]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
+}
+
+function toTitleCaseFromSnake(value: string): string {
+  if (!value) return value;
+  return value
+    .split("_")
+    .filter((part) => part.length > 0)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function parseCsvHeaders(text: string): string[] {
@@ -191,6 +201,79 @@ function fmtTs(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildCompanyDetailRows(company: CompanyRow): Array<{ field: string; value: string }> {
+  const rows: Array<{ field: string; value: string }> = [];
+  let rawObject: Record<string, unknown> | null = null;
+  if (company.raw?.trim()) {
+    try {
+      const parsed = JSON.parse(company.raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        rawObject = parsed as Record<string, unknown>;
+      }
+    } catch {
+      rawObject = null;
+    }
+  }
+  if (rawObject) {
+    const dedup = new Map<string, { field: string; value: string }>();
+    for (const [field, value] of Object.entries(rawObject)) {
+      const canonical = toSnakeCase(field);
+      if (!canonical) continue;
+      const nextValue = stringifyValue(value).trim();
+      const existing = dedup.get(canonical);
+      if (!existing) {
+        dedup.set(canonical, {
+          field: toTitleCaseFromSnake(canonical),
+          value: nextValue
+        });
+        continue;
+      }
+      if (!existing.value && nextValue) {
+        dedup.set(canonical, { ...existing, value: nextValue });
+      }
+    }
+    rows.push(...dedup.values());
+    return rows;
+  }
+  rows.push(
+    { field: "company_id", value: company.company_id ?? "" },
+    { field: "company_name", value: company.company_name ?? "" },
+    { field: "company_domain", value: company.company_domain ?? "" }
+  );
+  return rows;
+}
+
+function formatEvidence(value: string): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => stringifyValue(item).trim())
+        .filter((item) => item.length > 0)
+        .join("\n");
+    }
+    if (parsed && typeof parsed === "object") {
+      return JSON.stringify(parsed, null, 2);
+    }
+  } catch {
+    // Keep plain-text evidence untouched when not valid JSON.
+  }
+  return value;
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`);
   if (!response.ok) throw new Error(await response.text());
@@ -223,6 +306,8 @@ export function App() {
   const [companyDetailTab, setCompanyDetailTab] = useState<"overview" | "people">("overview");
 
   const [allPeople, setAllPeople] = useState<PersonRow[]>([]);
+  const [companyReviews, setCompanyReviews] = useState<ReviewRow[]>([]);
+  const [peopleReviews, setPeopleReviews] = useState<ReviewRow[]>([]);
 
   useEffect(() => {
     const onHash = (): void => setView(getViewFromHash());
@@ -266,6 +351,7 @@ export function App() {
   useEffect(() => {
     if (view === "companies") void refreshCompanies();
     if (view === "people") void refreshPeople();
+    if (view === "reviews") void refreshReviews();
   }, [view]);
 
   const canSubmit = useMemo(
@@ -299,6 +385,15 @@ export function App() {
   async function refreshPeople(): Promise<void> {
     const response = await apiGet<{ ok: boolean; people: PersonRow[] }>("/people");
     setAllPeople(response.people);
+  }
+
+  async function refreshReviews(): Promise<void> {
+    const [companyResponse, peopleResponse] = await Promise.all([
+      apiGet<{ ok: boolean; reviews: ReviewRow[] }>("/reviews/companies"),
+      apiGet<{ ok: boolean; reviews: ReviewRow[] }>("/reviews/people")
+    ]);
+    setCompanyReviews(companyResponse.reviews);
+    setPeopleReviews(peopleResponse.reviews);
   }
 
   async function onCsvSelected(file: File): Promise<void> {
@@ -391,9 +486,21 @@ export function App() {
     setSelectedCompany(company);
     setCompanyDetailTab("overview");
     const people = await apiGet<{ ok: boolean; people: PersonRow[] }>(
-      `/companies/${company.run_id}/${encodeURIComponent(company.company_id)}/people`
+      `/companies/${encodeURIComponent(company.company_id)}/people`
     );
     setSelectedCompanyPeople(people.people);
+  }
+
+  async function resolveReview(entity: "companies" | "people", id: string, decision: "keep_old" | "keep_new"): Promise<void> {
+    const response = await fetch(`/api/reviews/${entity}/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    await refreshReviews();
+    if (view === "companies") await refreshCompanies();
+    if (view === "people") await refreshPeople();
   }
 
   const nav = (
@@ -402,7 +509,8 @@ export function App() {
         { key: "submit", label: "Submit Run" },
         { key: "runs", label: "Run Monitor" },
         { key: "companies", label: "Company" },
-        { key: "people", label: "People" }
+          { key: "people", label: "People" },
+          { key: "reviews", label: "Review Queue" }
       ].map((item) => (
         <button
           key={item.key}
@@ -522,7 +630,6 @@ export function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Run</th>
                   <th>Company</th>
                   <th>Domain</th>
                   <th>Actions</th>
@@ -531,7 +638,6 @@ export function App() {
               <tbody>
                 {allCompanies.map((company) => (
                   <tr key={`${company.run_id}-${company.company_id}`}>
-                    <td>{company.run_id}</td>
                     <td>{company.company_name}</td>
                     <td>{company.company_domain}</td>
                     <td>
@@ -553,7 +659,6 @@ export function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Run</th>
                   <th>Company</th>
                   <th>Name</th>
                   <th>Title</th>
@@ -564,14 +669,81 @@ export function App() {
               <tbody>
                 {allPeople.map((person) => (
                   <tr
-                    key={`${person.run_id ?? ""}-${person.company_id ?? ""}-${person.apollo_person_id ?? ""}-${person.email ?? ""}`}
+                    key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}`}
                   >
-                    <td>{person.run_id ?? ""}</td>
                     <td>{person.company_name ?? ""}</td>
                     <td>{person.full_name ?? ""}</td>
                     <td>{person.title ?? ""}</td>
                     <td>{person.email ?? ""}</td>
                     <td>{person.linkedin_url ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {view === "reviews" && (
+        <section className="panel">
+          <h2>Review Queue</h2>
+          <button onClick={() => void refreshReviews()}>Refresh</button>
+          <h3>Company Conflicts ({companyReviews.length})</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company ID</th>
+                  <th>Field</th>
+                  <th>Old Value</th>
+                  <th>New Value</th>
+                  <th>Source Run</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companyReviews.map((review) => (
+                  <tr key={review.id}>
+                    <td>{review.company_id}</td>
+                    <td>{review.field_name}</td>
+                    <td>{review.old_value}</td>
+                    <td>{review.new_value}</td>
+                    <td>{review.source_run_id}</td>
+                    <td>
+                      <button onClick={() => void resolveReview("companies", review.id ?? "", "keep_old")}>Keep old</button>
+                      <button onClick={() => void resolveReview("companies", review.id ?? "", "keep_new")}>Keep new</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3>People Conflicts ({peopleReviews.length})</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Person ID</th>
+                  <th>Field</th>
+                  <th>Old Value</th>
+                  <th>New Value</th>
+                  <th>Source Run</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {peopleReviews.map((review) => (
+                  <tr key={review.id}>
+                    <td>{review.person_id}</td>
+                    <td>{review.field_name}</td>
+                    <td>{review.old_value}</td>
+                    <td>{review.new_value}</td>
+                    <td>{review.source_run_id}</td>
+                    <td>
+                      <button onClick={() => void resolveReview("people", review.id ?? "", "keep_old")}>Keep old</button>
+                      <button onClick={() => void resolveReview("people", review.id ?? "", "keep_new")}>Keep new</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -639,7 +811,7 @@ export function App() {
                       <td>{company.company_domain}</td>
                       <td>{company.decision}</td>
                       <td>{company.confidence}</td>
-                      <td>{company.evidence}</td>
+                      <td className="value-wrap">{formatEvidence(company.evidence)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -683,11 +855,22 @@ export function App() {
           </div>
           {companyDetailTab === "overview" ? (
             <div className="dialog-body">
-              <p>Run: {selectedCompany.run_id}</p>
-              <p>Company: {selectedCompany.company_name}</p>
-              <p>Domain: {selectedCompany.company_domain}</p>
-              <p>Evidence: {selectedCompany.evidence}</p>
-              <pre className="log-box">{selectedCompany.raw}</pre>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {buildCompanyDetailRows(selectedCompany).map((row) => (
+                    <tr key={row.field}>
+                      <td>{row.field}</td>
+                      <td className="value-wrap">{row.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="table-wrap">

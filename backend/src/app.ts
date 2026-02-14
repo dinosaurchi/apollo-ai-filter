@@ -5,6 +5,24 @@ import { env } from "./config";
 import { RunManager } from "./run-manager";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import {
+  getRunIngestion,
+  ingestCompanies,
+  ingestPeople,
+  listCompaniesFromDb,
+  listCompanyReviews,
+  listRunIngestionRecords,
+  getRunIngestionSummary,
+  listPeopleByCompanyFromDb,
+  listPeopleFromDb,
+  listPeopleReviews,
+  markRunIngestionCompleted,
+  markRunIngestionFailed,
+  markRunIngestionInProgress,
+  markRunIngestionPending,
+  resolveCompanyReview,
+  resolvePeopleReview
+} from "./entity-store";
 
 export const app = express();
 export const runManager = new RunManager(
@@ -23,6 +41,44 @@ const upload = multer({
 });
 
 app.use(express.json({ limit: "5mb" }));
+
+async function syncSingleRunToDb(run: ReturnType<RunManager["listRuns"]>[number], force = false): Promise<void> {
+  const existing = await getRunIngestion(run.id);
+  if (!force && existing?.status === "completed") return;
+  if (run.status === "queued" || run.status === "running") return;
+  await markRunIngestionInProgress(run.id);
+  try {
+    const companies = await runManager.getRunCompanies(run.id, { includeRaw: true });
+    const people = await runManager.getRunPeople(run.id);
+    if (run.status === "completed" && companies.length === 0) {
+      throw new Error("Completed run has no company result rows to ingest");
+    }
+    const companyRows = await ingestCompanies(run.id, companies);
+    const peopleRows = await ingestPeople(run.id, people);
+    const terminal = run.status === "completed" || run.status === "failed" || run.status === "cancelled";
+    if (terminal) {
+      await markRunIngestionCompleted(run.id, true, true, companyRows, peopleRows);
+      return;
+    }
+    await markRunIngestionPending(run.id, companyRows > 0, peopleRows > 0);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await markRunIngestionFailed(run.id, message);
+    if (force) throw error;
+  }
+}
+
+async function syncRunsToDb(options?: { runIds?: string[]; force?: boolean; onlyFailed?: boolean }): Promise<void> {
+  const runIds = new Set(options?.runIds ?? []);
+  const runs = runManager.listRuns().filter((run) => runIds.size === 0 || runIds.has(run.id));
+  for (const run of runs) {
+    if (options?.onlyFailed) {
+      const existing = await getRunIngestion(run.id);
+      if (existing?.status !== "failed") continue;
+    }
+    await syncSingleRunToDb(run, Boolean(options?.force));
+  }
+}
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -169,18 +225,19 @@ app.get("/runs/:id/people", async (req, res, next) => {
 
 app.get("/companies", async (_req, res, next) => {
   try {
-    const companies = await runManager.getAllCompanies();
+    await syncRunsToDb();
+    const companies = await listCompaniesFromDb();
     res.json({ ok: true, companies });
   } catch (error) {
     next(error);
   }
 });
 
-app.get("/companies/:runId/:companyId/people", async (req, res, next) => {
+app.get("/companies/:companyId/people", async (req, res, next) => {
   try {
-    const people = await runManager.getRunPeople(req.params.runId);
-    const filtered = people.filter((p) => (p.company_id ?? "") === req.params.companyId);
-    res.json({ ok: true, people: filtered });
+    await syncRunsToDb();
+    const people = await listPeopleByCompanyFromDb(req.params.companyId);
+    res.json({ ok: true, people });
   } catch (error) {
     next(error);
   }
@@ -188,8 +245,105 @@ app.get("/companies/:runId/:companyId/people", async (req, res, next) => {
 
 app.get("/people", async (_req, res, next) => {
   try {
-    const people = await runManager.getAllPeople();
+    await syncRunsToDb();
+    const people = await listPeopleFromDb();
     res.json({ ok: true, people });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/reviews/companies", async (_req, res, next) => {
+  try {
+    await syncRunsToDb();
+    const reviews = await listCompanyReviews();
+    res.json({ ok: true, reviews });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/reviews/people", async (_req, res, next) => {
+  try {
+    await syncRunsToDb();
+    const reviews = await listPeopleReviews();
+    res.json({ ok: true, reviews });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/admin/ingestion/status", async (req, res, next) => {
+  try {
+    const limitRaw = Number.parseInt(String(req.query.limit ?? "100"), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+    const [summary, records] = await Promise.all([
+      getRunIngestionSummary(),
+      listRunIngestionRecords(limit)
+    ]);
+    res.json({ ok: true, summary, records });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/admin/ingestion/runs/:runId/retry", async (req, res, next) => {
+  try {
+    const run = runManager.getRun(req.params.runId);
+    if (!run) {
+      res.status(404).json({ ok: false, error: "Run not found" });
+      return;
+    }
+    await syncSingleRunToDb(run, true);
+    const status = await getRunIngestion(run.id);
+    res.json({ ok: true, status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/admin/ingestion/backfill", async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const runIds = Array.isArray(body.runIds)
+      ? body.runIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : undefined;
+    const force = body.force === true;
+    const onlyFailed = body.onlyFailed !== false;
+    await syncRunsToDb({ runIds, force, onlyFailed });
+    const [summary, records] = await Promise.all([
+      getRunIngestionSummary(),
+      listRunIngestionRecords(100)
+    ]);
+    res.json({ ok: true, summary, records });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/reviews/companies/:id/resolve", async (req, res, next) => {
+  try {
+    const decision = String(req.body?.decision ?? "");
+    if (decision !== "keep_old" && decision !== "keep_new") {
+      res.status(400).json({ ok: false, error: "decision must be keep_old or keep_new" });
+      return;
+    }
+    await resolveCompanyReview(req.params.id, decision);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/reviews/people/:id/resolve", async (req, res, next) => {
+  try {
+    const decision = String(req.body?.decision ?? "");
+    if (decision !== "keep_old" && decision !== "keep_new") {
+      res.status(400).json({ ok: false, error: "decision must be keep_old or keep_new" });
+      return;
+    }
+    await resolvePeopleReview(req.params.id, decision);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
