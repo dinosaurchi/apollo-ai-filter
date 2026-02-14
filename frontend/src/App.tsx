@@ -247,9 +247,13 @@ function buildCompanyDetailRows(company: CompanyRow): Array<{ field: string; val
     return rows;
   }
   rows.push(
-    { field: "company_id", value: company.company_id ?? "" },
-    { field: "company_name", value: company.company_name ?? "" },
-    { field: "company_domain", value: company.company_domain ?? "" }
+    ...Object.entries(company)
+      .filter(([key]) => !["run_id", "raw", "evidence"].includes(key))
+      .map(([key, value]) => ({
+        field: toTitleCaseFromSnake(key),
+        value: stringifyValue(value)
+      }))
+      .filter((item) => item.value.trim().length > 0)
   );
   return rows;
 }

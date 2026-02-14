@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execSql, queryRows } from "./db";
+import { toSnakeCase } from "./csv";
 
 type CompanyRecord = {
   run_id?: string;
@@ -14,6 +15,38 @@ type CompanyRecord = {
 
 type PersonRecord = Record<string, string>;
 type IngestionState = "pending" | "ingesting" | "completed" | "failed";
+
+const COMPANY_CSV_FIELDS = [
+  "company_name_for_emails",
+  "employees",
+  "industry",
+  "website",
+  "company_linkedin_url",
+  "facebook_url",
+  "twitter_url",
+  "company_city",
+  "company_state",
+  "company_country",
+  "keywords",
+  "company_phone",
+  "total_funding",
+  "latest_funding",
+  "latest_funding_amount",
+  "last_raised_at",
+  "annual_revenue",
+  "apollo_account_id",
+  "sic_codes",
+  "naics_codes",
+  "short_description",
+  "founded_year",
+  "subsidiary_of",
+  "stablecoin_prospect_9854",
+  "qualify_account",
+  "prerequisite_determine_research_guidelines",
+  "prerequisite_research_target_company"
+] as const;
+
+type CompanyCsvField = typeof COMPANY_CSV_FIELDS[number];
 
 const COMPANY_MUTABLE_FIELDS = new Set([
   "company_name",
@@ -51,16 +84,57 @@ function hasValue(value: string | undefined): boolean {
   return norm(value).length > 0;
 }
 
-export function normalizeProfileJson(raw: string | undefined): string {
+function parseRawCompanyObject(raw: string | undefined): Record<string, string> {
   const trimmed = norm(raw);
-  if (!trimmed) return "";
+  if (!trimmed) return {};
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
-    return JSON.stringify(parsed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      out[toSnakeCase(key)] = String(value ?? "").trim();
+    }
+    return out;
   } catch {
-    return "";
+    return {};
   }
+}
+
+function companyFieldFromRaw(rawObj: Record<string, string>, key: string): string {
+  return norm(rawObj[toSnakeCase(key)]);
+}
+
+export function extractCompanyCsvValues(row: CompanyRecord): Record<CompanyCsvField, string> {
+  const rawObj = parseRawCompanyObject(row.raw);
+  return {
+    company_name_for_emails: companyFieldFromRaw(rawObj, "Company Name for Emails"),
+    employees: companyFieldFromRaw(rawObj, "# Employees"),
+    industry: companyFieldFromRaw(rawObj, "Industry"),
+    website: companyFieldFromRaw(rawObj, "Website"),
+    company_linkedin_url: companyFieldFromRaw(rawObj, "Company Linkedin Url"),
+    facebook_url: companyFieldFromRaw(rawObj, "Facebook Url"),
+    twitter_url: companyFieldFromRaw(rawObj, "Twitter Url"),
+    company_city: companyFieldFromRaw(rawObj, "Company City"),
+    company_state: companyFieldFromRaw(rawObj, "Company State"),
+    company_country: companyFieldFromRaw(rawObj, "Company Country"),
+    keywords: companyFieldFromRaw(rawObj, "Keywords"),
+    company_phone: companyFieldFromRaw(rawObj, "Company Phone"),
+    total_funding: companyFieldFromRaw(rawObj, "Total Funding"),
+    latest_funding: companyFieldFromRaw(rawObj, "Latest Funding"),
+    latest_funding_amount: companyFieldFromRaw(rawObj, "Latest Funding Amount"),
+    last_raised_at: companyFieldFromRaw(rawObj, "Last Raised At"),
+    annual_revenue: companyFieldFromRaw(rawObj, "Annual Revenue"),
+    apollo_account_id: companyFieldFromRaw(rawObj, "Apollo Account Id"),
+    sic_codes: companyFieldFromRaw(rawObj, "SIC Codes"),
+    naics_codes: companyFieldFromRaw(rawObj, "NAICS Codes"),
+    short_description: companyFieldFromRaw(rawObj, "Short Description"),
+    founded_year: companyFieldFromRaw(rawObj, "Founded Year"),
+    subsidiary_of: companyFieldFromRaw(rawObj, "Subsidiary of"),
+    stablecoin_prospect_9854: companyFieldFromRaw(rawObj, "Stablecoin Prospect 9854"),
+    qualify_account: companyFieldFromRaw(rawObj, "Qualify Account"),
+    prerequisite_determine_research_guidelines: companyFieldFromRaw(rawObj, "Prerequisite: Determine Research Guidelines"),
+    prerequisite_research_target_company: companyFieldFromRaw(rawObj, "Prerequisite: Research Target Company")
+  };
 }
 
 function buildPersonId(row: PersonRecord): string {
@@ -110,18 +184,58 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
     const companyId = norm(row.company_id);
     if (!companyId) continue;
     processed += 1;
-    const profileJson = normalizeProfileJson(row.raw);
+    const csvValues = extractCompanyCsvValues(row);
     const existing = await queryRows<Record<string, unknown>>("SELECT * FROM companies WHERE company_id = $1", [companyId]);
     if (existing.length === 0) {
       await execSql(
         `INSERT INTO companies (
-          company_id, company_name, company_domain, profile_json, source_run_id
-        ) VALUES ($1,$2,$3,$4,$5)`,
+          company_id, company_name, company_domain,
+          company_name_for_emails, employees, industry, website, company_linkedin_url, facebook_url, twitter_url,
+          company_city, company_state, company_country, keywords, company_phone, total_funding, latest_funding,
+          latest_funding_amount, last_raised_at, annual_revenue, apollo_account_id, sic_codes, naics_codes,
+          short_description, founded_year, subsidiary_of, stablecoin_prospect_9854, qualify_account,
+          prerequisite_determine_research_guidelines, prerequisite_research_target_company,
+          source_run_id
+        ) VALUES (
+          $1,$2,$3,
+          $4,$5,$6,$7,$8,$9,$10,
+          $11,$12,$13,$14,$15,$16,$17,
+          $18,$19,$20,$21,$22,$23,
+          $24,$25,$26,$27,$28,
+          $29,$30,
+          $31
+        )`,
         [
           companyId,
           norm(row.company_name),
           norm(row.company_domain),
-          profileJson,
+          csvValues.company_name_for_emails,
+          csvValues.employees,
+          csvValues.industry,
+          csvValues.website,
+          csvValues.company_linkedin_url,
+          csvValues.facebook_url,
+          csvValues.twitter_url,
+          csvValues.company_city,
+          csvValues.company_state,
+          csvValues.company_country,
+          csvValues.keywords,
+          csvValues.company_phone,
+          csvValues.total_funding,
+          csvValues.latest_funding,
+          csvValues.latest_funding_amount,
+          csvValues.last_raised_at,
+          csvValues.annual_revenue,
+          csvValues.apollo_account_id,
+          csvValues.sic_codes,
+          csvValues.naics_codes,
+          csvValues.short_description,
+          csvValues.founded_year,
+          csvValues.subsidiary_of,
+          csvValues.stablecoin_prospect_9854,
+          csvValues.qualify_account,
+          csvValues.prerequisite_determine_research_guidelines,
+          csvValues.prerequisite_research_target_company,
           runId
         ]
       );
@@ -162,11 +276,19 @@ export async function ingestCompanies(runId: string, rows: CompanyRecord[]): Pro
         [...values, runId, companyId]
       );
     }
-    const currentProfileJson = norm(current.profile_json);
-    if (profileJson && profileJson !== currentProfileJson) {
+    const csvUpdates: string[] = [];
+    const csvUpdateValues: string[] = [];
+    for (const field of COMPANY_CSV_FIELDS) {
+      const oldValue = norm(current[field]);
+      const newValue = norm(csvValues[field]);
+      if (!hasValue(newValue) || newValue === oldValue) continue;
+      csvUpdates.push(`${field} = $${csvUpdateValues.length + 1}`);
+      csvUpdateValues.push(newValue);
+    }
+    if (csvUpdates.length > 0) {
       await execSql(
-        "UPDATE companies SET profile_json = $1, source_run_id = $2, updated_at = NOW() WHERE company_id = $3",
-        [profileJson, runId, companyId]
+        `UPDATE companies SET ${csvUpdates.join(", ")}, source_run_id = $${csvUpdateValues.length + 1}, updated_at = NOW() WHERE company_id = $${csvUpdateValues.length + 2}`,
+        [...csvUpdateValues, runId, companyId]
       );
     }
   }
@@ -405,17 +527,18 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
 
 export async function listCompaniesFromDb(): Promise<Array<Record<string, string>>> {
   const result = await queryRows<Record<string, unknown>>(
-    `SELECT company_id, company_name, company_domain, profile_json, source_run_id
+    `SELECT *
      FROM companies ORDER BY updated_at DESC, company_name ASC`
   );
-  return result.map((row) => ({
-    run_id: String(row.source_run_id ?? ""),
-    company_id: String(row.company_id ?? ""),
-    company_name: String(row.company_name ?? ""),
-    company_domain: String(row.company_domain ?? ""),
-    evidence: "",
-    raw: String(row.profile_json ?? "")
-  }));
+  return result.map((row) => {
+    const allValues = Object.fromEntries(Object.entries(row).map(([key, value]) => [key, String(value ?? "")]));
+    return {
+      ...allValues,
+      run_id: String(row.source_run_id ?? ""),
+      evidence: "",
+      raw: ""
+    };
+  });
 }
 
 export async function listPeopleFromDb(): Promise<Array<Record<string, string>>> {

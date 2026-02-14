@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertAllowedFieldName, normalizeProfileJson } from "../src/entity-store";
+import { assertAllowedFieldName, extractCompanyCsvValues } from "../src/entity-store";
 
 describe("assertAllowedFieldName", () => {
   it("allows known company fields", () => {
@@ -23,15 +23,26 @@ describe("assertAllowedFieldName", () => {
   });
 });
 
-describe("normalizeProfileJson", () => {
-  it("normalizes valid object json", () => {
-    expect(normalizeProfileJson('{ "a": 1, "b": "x" }')).toBe('{"a":1,"b":"x"}');
+describe("extractCompanyCsvValues", () => {
+  it("extracts known fields from raw csv payload", () => {
+    const values = extractCompanyCsvValues({
+      raw: JSON.stringify({
+        "Company Name for Emails": "Acme Co",
+        "# Employees": "55",
+        "Apollo Account Id": "abc-123",
+        "Prerequisite: Research Target Company": "done"
+      })
+    });
+    expect(values.company_name_for_emails).toBe("Acme Co");
+    expect(values.employees).toBe("55");
+    expect(values.apollo_account_id).toBe("abc-123");
+    expect(values.prerequisite_research_target_company).toBe("done");
   });
 
-  it("drops invalid or non-object values", () => {
-    expect(normalizeProfileJson("")).toBe("");
-    expect(normalizeProfileJson("{bad-json")).toBe("");
-    expect(normalizeProfileJson("[1,2,3]")).toBe("");
-    expect(normalizeProfileJson('"str"')).toBe("");
+  it("returns empty values when raw payload is missing or invalid", () => {
+    const empty = extractCompanyCsvValues({ raw: "" });
+    expect(empty.website).toBe("");
+    const invalid = extractCompanyCsvValues({ raw: "{bad-json" });
+    expect(invalid.company_country).toBe("");
   });
 });

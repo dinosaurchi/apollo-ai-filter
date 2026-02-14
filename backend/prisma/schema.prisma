@@ -7,13 +7,39 @@ datasource db {
 }
 
 model Company {
-  companyId    String   @id @map("company_id") @db.Text
-  companyName  String   @default("") @map("company_name") @db.Text
-  companyDomain String  @default("") @map("company_domain") @db.Text
-  profileJson  String   @default("") @map("profile_json") @db.Text
-  sourceRunId  String   @default("") @map("source_run_id") @db.Text
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  companyId                                String   @id @map("company_id") @db.Text
+  companyName                              String   @default("") @map("company_name") @db.Text
+  companyDomain                            String   @default("") @map("company_domain") @db.Text
+  companyNameForEmails                     String   @default("") @map("company_name_for_emails") @db.Text
+  employees                                String   @default("") @db.Text
+  industry                                 String   @default("") @db.Text
+  website                                  String   @default("") @db.Text
+  companyLinkedinUrl                       String   @default("") @map("company_linkedin_url") @db.Text
+  facebookUrl                              String   @default("") @map("facebook_url") @db.Text
+  twitterUrl                               String   @default("") @map("twitter_url") @db.Text
+  companyCity                              String   @default("") @map("company_city") @db.Text
+  companyState                             String   @default("") @map("company_state") @db.Text
+  companyCountry                           String   @default("") @map("company_country") @db.Text
+  keywords                                 String   @default("") @db.Text
+  companyPhone                             String   @default("") @map("company_phone") @db.Text
+  totalFunding                             String   @default("") @map("total_funding") @db.Text
+  latestFunding                            String   @default("") @map("latest_funding") @db.Text
+  latestFundingAmount                      String   @default("") @map("latest_funding_amount") @db.Text
+  lastRaisedAt                             String   @default("") @map("last_raised_at") @db.Text
+  annualRevenue                            String   @default("") @map("annual_revenue") @db.Text
+  apolloAccountId                          String   @default("") @map("apollo_account_id") @db.Text
+  sicCodes                                 String   @default("") @map("sic_codes") @db.Text
+  naicsCodes                               String   @default("") @map("naics_codes") @db.Text
+  shortDescription                         String   @default("") @map("short_description") @db.Text
+  foundedYear                              String   @default("") @map("founded_year") @db.Text
+  subsidiaryOf                             String   @default("") @map("subsidiary_of") @db.Text
+  stablecoinProspect9854                   String   @default("") @map("stablecoin_prospect_9854") @db.Text
+  qualifyAccount                           String   @default("") @map("qualify_account") @db.Text
+  prerequisiteDetermineResearchGuidelines  String   @default("") @map("prerequisite_determine_research_guidelines") @db.Text
+  prerequisiteResearchTargetCompany        String   @default("") @map("prerequisite_research_target_company") @db.Text
+  sourceRunId                              String   @default("") @map("source_run_id") @db.Text
+  createdAt                                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   @@map("companies")
 }
