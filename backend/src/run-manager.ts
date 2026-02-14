@@ -80,6 +80,8 @@ export type RunStepSummary = {
   title: string;
   inputRows: number | null;
   outputRows: number | null;
+  progressText: string;
+  status: "not_started" | "running" | "cancelled" | "failed" | "finished";
 };
 
 type RunningProc = {
@@ -576,17 +578,65 @@ export class RunManager extends EventEmitter {
       return parseCsv(content).rows.length;
     };
 
+    const startedSteps = new Set<string>();
+    const completedSteps = new Set<string>();
+    for (const log of meta.logs) {
+      const parsed = parseAnalyzeLine(log.line);
+      if (!parsed || typeof parsed.details?.step !== "string") continue;
+      if (parsed.message === "executing step") startedSteps.add(parsed.details.step);
+      if (parsed.message.endsWith("step completed")) completedSteps.add(parsed.details.step);
+    }
+
+    const stepOrder = meta.config.steps.map((step) => step.id);
+    const currentStep = typeof meta.progress.currentStep === "string" ? meta.progress.currentStep : null;
+    const currentFromProgress = currentStep && stepOrder.includes(currentStep) ? currentStep : null;
+    const currentFromLogs = [...stepOrder].reverse().find((stepId) => startedSteps.has(stepId) && !completedSteps.has(stepId)) ?? null;
+    const activeStepId = currentFromProgress ?? currentFromLogs;
+
     return Promise.all(
       meta.config.steps.map(async (step) => {
         const stepDir = path.resolve(analysisRunDir, "steps", step.id);
         const inputRows = await countRows(path.resolve(stepDir, "in.csv"));
         const outputRows = await countRows(path.resolve(stepDir, "out.csv"));
+        const inferStatus = (): RunStepSummary["status"] => {
+          if (meta.status === "queued") return "not_started";
+          if (meta.status === "running") {
+            if (completedSteps.has(step.id)) return "finished";
+            if (step.id === activeStepId) return "running";
+            if (startedSteps.has(step.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          if (meta.status === "completed") return "finished";
+          if (meta.status === "failed") {
+            if (completedSteps.has(step.id)) return "finished";
+            if (step.id === activeStepId) return "failed";
+            if (startedSteps.has(step.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          if (meta.status === "cancelled") {
+            if (completedSteps.has(step.id)) return "finished";
+            if (step.id === activeStepId) return "cancelled";
+            if (startedSteps.has(step.id) && outputRows !== null) return "finished";
+            return "not_started";
+          }
+          return "not_started";
+        };
+        const status = inferStatus();
+        const progressText = (() => {
+          if (status === "finished") return "Completed";
+          if (status === "running") return "In progress";
+          if (status === "failed") return "Stopped (error)";
+          if (status === "cancelled") return "Cancelled";
+          return "Pending";
+        })();
         return {
           id: step.id,
           type: step.type,
           title: step.id,
           inputRows,
-          outputRows
+          outputRows,
+          progressText,
+          status
         };
       })
     );

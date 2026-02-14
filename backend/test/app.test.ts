@@ -39,7 +39,9 @@ describe("GET /runs/:id", () => {
         type: "ai_text",
         title: "02-ai-text-A2",
         inputRows: 10,
-        outputRows: 8
+        outputRows: 8,
+        progressText: "Completed",
+        status: "finished"
       }
     ]);
 
@@ -54,7 +56,9 @@ describe("GET /runs/:id", () => {
         type: "ai_text",
         title: "02-ai-text-A2",
         inputRows: 10,
-        outputRows: 8
+        outputRows: 8,
+        progressText: "Completed",
+        status: "finished"
       }
     ]);
   });

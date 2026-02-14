@@ -34,6 +34,8 @@ type RunDetail = {
     title: string;
     inputRows: number | null;
     outputRows: number | null;
+    progressText: string;
+    status: "not_started" | "running" | "cancelled" | "failed" | "finished";
   }>;
 };
 
@@ -283,6 +285,14 @@ function formatEvidence(value: string): string {
     // Keep plain-text evidence untouched when not valid JSON.
   }
   return value;
+}
+
+function toStepStatusLabel(status: "not_started" | "running" | "cancelled" | "failed" | "finished"): string {
+  if (status === "not_started") return "Not Started";
+  if (status === "running") return "Running";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "failed") return "Failed";
+  return "Finished";
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -810,11 +820,12 @@ export function App() {
               <p>Artifacts: {selectedRunDetail.analysisRunDir ?? "-"}</p>
               {selectedRunDetail.stepSummaries && selectedRunDetail.stepSummaries.length > 0 && (
                 <div className="table-wrap">
-                  <table>
+                  <table className="step-summary-table">
                     <thead>
                       <tr>
                         <th>Step</th>
                         <th>Type</th>
+                        <th>Progress</th>
                         <th>Input Rows</th>
                         <th>Output Rows</th>
                       </tr>
@@ -824,6 +835,10 @@ export function App() {
                         <tr key={step.id}>
                           <td>{step.title}</td>
                           <td>{step.type}</td>
+                          <td>
+                            <span>{step.progressText}</span>{" "}
+                            <span className={`status-pill status-${step.status}`}>{toStepStatusLabel(step.status)}</span>
+                          </td>
                           <td>{step.inputRows ?? "-"}</td>
                           <td>{step.outputRows ?? "-"}</td>
                         </tr>

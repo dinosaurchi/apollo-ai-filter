@@ -108,7 +108,9 @@ describe("App", () => {
                   type: "ai_text",
                   title: "02-ai-text-A2",
                   inputRows: 10,
-                  outputRows: 8
+                  outputRows: 8,
+                  progressText: "Completed",
+                  status: "finished"
                 }
               ]
             }
@@ -134,6 +136,8 @@ describe("App", () => {
 
     expect(await screen.findByText("Input Rows")).toBeInTheDocument();
     expect(screen.getByText("02-ai-text-A2")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("Finished")).toBeInTheDocument();
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("8")).toBeInTheDocument();
   });

@@ -111,8 +111,13 @@ td {
   table-layout: fixed;
 }
 
+.step-summary-table {
+  table-layout: fixed;
+}
+
 .people-table td,
-.company-people-table td {
+.company-people-table td,
+.step-summary-table td {
   overflow-wrap: anywhere;
 }
 
@@ -162,6 +167,46 @@ td {
 
 .company-people-table .col-location {
   width: 7%;
+}
+
+.status-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  vertical-align: middle;
+}
+
+.status-not_started {
+  color: #d7e3f7;
+  background: #1f2f4a;
+  border-color: #3d5a86;
+}
+
+.status-running {
+  color: #fff5d0;
+  background: #4e3a12;
+  border-color: #8a6a21;
+}
+
+.status-cancelled {
+  color: #f8e0a5;
+  background: #3f3324;
+  border-color: #856e49;
+}
+
+.status-failed {
+  color: #ffd7db;
+  background: #4d1f2a;
+  border-color: #8f3a4a;
+}
+
+.status-finished {
+  color: #d3f3dc;
+  background: #153627;
+  border-color: #2f7354;
 }
 
 .value-wrap {
