@@ -141,4 +141,63 @@ describe("App", () => {
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("8")).toBeInTheDocument();
   });
+
+  it("paginates run monitor table with default page size 20", async () => {
+    class EventSourceMock {
+      public addEventListener(): void {}
+      public close(): void {}
+    }
+    vi.stubGlobal("EventSource", EventSourceMock);
+    window.location.hash = "#/runs";
+
+    const runs = Array.from({ length: 25 }, (_, idx) => {
+      const n = idx + 1;
+      return {
+        id: `run-${String(n).padStart(2, "0")}`,
+        status: "completed",
+        createdAt: `2026-02-14T20:${String(idx).padStart(2, "0")}:00.000Z`,
+        updatedAt: `2026-02-14T20:${String(idx).padStart(2, "0")}:30.000Z`,
+        inputFileName: "example.csv",
+        progress: {
+          totalSteps: 5,
+          completedSteps: 5,
+          currentStep: null,
+          message: "Completed"
+        },
+        error: null,
+        pid: null
+      };
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/health")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true })
+        } as Response;
+      }
+      if (url.endsWith("/api/runs")) {
+        return {
+          ok: true,
+          json: async () => ({ ok: true, runs })
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ ok: true })
+      } as Response;
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("1-20 of 25")).toBeInTheDocument();
+    expect(screen.getByText("run-01")).toBeInTheDocument();
+    expect(screen.queryByText("run-21")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("21-25 of 25")).toBeInTheDocument();
+    expect(screen.getByText("run-21")).toBeInTheDocument();
+  });
 });

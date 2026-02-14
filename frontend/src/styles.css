@@ -93,6 +93,49 @@ button:disabled {
   margin-top: 0.75rem;
 }
 
+.table-pagination {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pagination-summary {
+  color: #c5d3e8;
+  font-size: 0.92rem;
+}
+
+.page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #c5d3e8;
+  font-size: 0.92rem;
+}
+
+.page-size select {
+  background: #0d1628;
+  color: #e8ecf1;
+  border: 1px solid #3f5f92;
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+}
+
+.pagination-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pagination-nav span {
+  min-width: 5.25rem;
+  text-align: center;
+  color: #c5d3e8;
+  font-size: 0.92rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

@@ -54,6 +54,8 @@ type PersonRow = Record<string, string>;
 type ReviewRow = Record<string, string>;
 
 type ViewName = "submit" | "runs" | "companies" | "people" | "reviews";
+const DEFAULT_PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function getViewFromHash(): ViewName {
   const h = window.location.hash.replace(/^#\/?/, "");
@@ -295,6 +297,50 @@ function toStepStatusLabel(status: "not_started" | "running" | "cancelled" | "fa
   return "Finished";
 }
 
+function PaginationControls(props: {
+  totalItems: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}) {
+  const { totalItems, page, pageSize, onPageChange, onPageSizeChange } = props;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const start = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(totalItems, page * pageSize);
+  return (
+    <div className="table-pagination">
+      <div className="pagination-summary">
+        {start}-{end} of {totalItems}
+      </div>
+      <label className="page-size">
+        Page size
+        <select
+          value={String(pageSize)}
+          onChange={(event) => onPageSizeChange(Number.parseInt(event.target.value, 10) || DEFAULT_PAGE_SIZE)}
+        >
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={String(size)}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="pagination-nav">
+        <button disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+          Prev
+        </button>
+        <span>
+          Page {page}/{totalPages}
+        </span>
+        <button disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`);
   if (!response.ok) throw new Error(await response.text());
@@ -318,15 +364,21 @@ export function App() {
   const [selectedRunDetail, setSelectedRunDetail] = useState<RunDetail | null>(null);
   const [selectedRunCompanies, setSelectedRunCompanies] = useState<CompanyRow[]>([]);
   const [runDetailTab, setRunDetailTab] = useState<"overview" | "companies" | "input_json">("overview");
+  const [runsPage, setRunsPage] = useState(1);
+  const [runsPageSize, setRunsPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const [allCompanies, setAllCompanies] = useState<CompanyRow[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [companiesError, setCompaniesError] = useState("");
+  const [companiesPage, setCompaniesPage] = useState(1);
+  const [companiesPageSize, setCompaniesPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [selectedCompany, setSelectedCompany] = useState<CompanyRow | null>(null);
   const [selectedCompanyPeople, setSelectedCompanyPeople] = useState<PersonRow[]>([]);
   const [companyDetailTab, setCompanyDetailTab] = useState<"overview" | "people">("overview");
 
   const [allPeople, setAllPeople] = useState<PersonRow[]>([]);
+  const [peoplePage, setPeoplePage] = useState(1);
+  const [peoplePageSize, setPeoplePageSize] = useState(DEFAULT_PAGE_SIZE);
   const [companyReviews, setCompanyReviews] = useState<ReviewRow[]>([]);
   const [peopleReviews, setPeopleReviews] = useState<ReviewRow[]>([]);
 
@@ -383,6 +435,42 @@ export function App() {
       && !submitting,
     [csvFile, configErrors, configText, submitting]
   );
+
+  const pagedRuns = useMemo(() => {
+    const totalPages = Math.max(1, Math.ceil(runs.length / runsPageSize));
+    const page = Math.min(runsPage, totalPages);
+    const start = (page - 1) * runsPageSize;
+    return runs.slice(start, start + runsPageSize);
+  }, [runs, runsPage, runsPageSize]);
+
+  const pagedCompanies = useMemo(() => {
+    const totalPages = Math.max(1, Math.ceil(allCompanies.length / companiesPageSize));
+    const page = Math.min(companiesPage, totalPages);
+    const start = (page - 1) * companiesPageSize;
+    return allCompanies.slice(start, start + companiesPageSize);
+  }, [allCompanies, companiesPage, companiesPageSize]);
+
+  const pagedPeople = useMemo(() => {
+    const totalPages = Math.max(1, Math.ceil(allPeople.length / peoplePageSize));
+    const page = Math.min(peoplePage, totalPages);
+    const start = (page - 1) * peoplePageSize;
+    return allPeople.slice(start, start + peoplePageSize);
+  }, [allPeople, peoplePage, peoplePageSize]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(runs.length / runsPageSize));
+    if (runsPage > totalPages) setRunsPage(totalPages);
+  }, [runs.length, runsPage, runsPageSize]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(allCompanies.length / companiesPageSize));
+    if (companiesPage > totalPages) setCompaniesPage(totalPages);
+  }, [allCompanies.length, companiesPage, companiesPageSize]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(allPeople.length / peoplePageSize));
+    if (peoplePage > totalPages) setPeoplePage(totalPages);
+  }, [allPeople.length, peoplePage, peoplePageSize]);
 
   async function refreshRuns(): Promise<void> {
     const response = await apiGet<{ ok: boolean; runs: RunSummary[] }>("/runs");
@@ -603,6 +691,16 @@ export function App() {
       {view === "runs" && (
         <section className="panel">
           <h2>Run Monitor</h2>
+          <PaginationControls
+            totalItems={runs.length}
+            page={runsPage}
+            pageSize={runsPageSize}
+            onPageChange={setRunsPage}
+            onPageSizeChange={(size) => {
+              setRunsPageSize(size);
+              setRunsPage(1);
+            }}
+          />
           <div className="table-wrap">
             <table>
               <thead>
@@ -616,7 +714,7 @@ export function App() {
                 </tr>
               </thead>
               <tbody>
-                {runs.map((run) => (
+                {pagedRuns.map((run) => (
                   <tr key={run.id}>
                     <td>{run.id}</td>
                     <td>{run.status}</td>
@@ -647,6 +745,16 @@ export function App() {
           </button>
           {companiesLoading && <p className="status">Loading companies...</p>}
           {companiesError && <p className="error">{companiesError}</p>}
+          <PaginationControls
+            totalItems={allCompanies.length}
+            page={companiesPage}
+            pageSize={companiesPageSize}
+            onPageChange={setCompaniesPage}
+            onPageSizeChange={(size) => {
+              setCompaniesPageSize(size);
+              setCompaniesPage(1);
+            }}
+          />
           <div className="table-wrap">
             <table>
               <thead>
@@ -657,7 +765,7 @@ export function App() {
                 </tr>
               </thead>
               <tbody>
-                {allCompanies.map((company) => (
+                {pagedCompanies.map((company) => (
                   <tr key={`${company.run_id}-${company.company_id}`}>
                     <td>{company.company_name}</td>
                     <td>{company.company_domain}</td>
@@ -676,6 +784,16 @@ export function App() {
         <section className="panel">
           <h2>People</h2>
           <button onClick={() => void refreshPeople()}>Refresh</button>
+          <PaginationControls
+            totalItems={allPeople.length}
+            page={peoplePage}
+            pageSize={peoplePageSize}
+            onPageChange={setPeoplePage}
+            onPageSizeChange={(size) => {
+              setPeoplePageSize(size);
+              setPeoplePage(1);
+            }}
+          />
           <div className="table-wrap">
             <table className="people-table">
               <colgroup>
@@ -697,7 +815,7 @@ export function App() {
                 </tr>
               </thead>
               <tbody>
-                {allPeople.map((person) => (
+                {pagedPeople.map((person) => (
                   <tr
                     key={`${person.person_id ?? ""}-${person.company_id ?? ""}-${person.email ?? ""}`}
                   >
