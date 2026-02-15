@@ -1,4 +1,5 @@
 const DEFAULT_APOLLO_BASE_URL = "https://api.apollo.io";
+const LOCKED_EMAIL_VALUES = new Set(["email_not_unlocked@domain.com", "email_not_unlocked"]);
 
 export type PersonEnrichInput = {
   person_id: string;
@@ -28,6 +29,33 @@ function firstNonEmpty(values: unknown[]): string {
   return "";
 }
 
+function normalizeEmail(value: unknown): string {
+  const email = normalize(value).toLowerCase();
+  if (!email) return "";
+  if (LOCKED_EMAIL_VALUES.has(email)) return "";
+  return email;
+}
+
+function hasRealApolloId(personId: string): boolean {
+  return Boolean(personId && !personId.startsWith("linkedin:") && !personId.startsWith("email:") && !personId.startsWith("fallback:"));
+}
+
+function firstEmailFromArray(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  for (const item of value) {
+    if (typeof item === "string") {
+      const email = normalizeEmail(item);
+      if (email) return email;
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const candidate = normalizeEmail((item as Record<string, unknown>).email);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
+}
+
 function resolveApiKey(env: NodeJS.ProcessEnv): string {
   const apiKey = normalize(env.APOLLO_API_KEY);
   if (!apiKey) throw new Error("Missing APOLLO_API_KEY environment variable");
@@ -36,6 +64,20 @@ function resolveApiKey(env: NodeJS.ProcessEnv): string {
 
 function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
   return (env.APOLLO_API_BASE_URL ?? DEFAULT_APOLLO_BASE_URL).replace(/\/+$/, "");
+}
+
+function resolvePeopleMatchPath(env: NodeJS.ProcessEnv): string {
+  const params = new URLSearchParams();
+  params.set("reveal_personal_emails", env.APOLLO_REVEAL_PERSONAL_EMAILS === "false" ? "false" : "true");
+  params.set("reveal_phone_number", env.APOLLO_REVEAL_PHONE_NUMBER === "true" ? "true" : "false");
+  if (env.APOLLO_RUN_WATERFALL_EMAIL === "true") {
+    params.set("run_waterfall_email", "true");
+  }
+  const webhookUrl = normalize(env.APOLLO_ENRICH_WEBHOOK_URL);
+  if (webhookUrl) {
+    params.set("webhook_url", webhookUrl);
+  }
+  return `/api/v1/people/match?${params.toString()}`;
 }
 
 async function fetchApollo(
@@ -82,8 +124,19 @@ function shapeEnrichedPerson(payload: Record<string, unknown>): PersonEnrichResu
         .join(" ")
     ]),
     title: firstNonEmpty([rawPerson.title, rawPerson.headline]),
-    email: firstNonEmpty([rawPerson.email, rawPerson.work_email]),
-    linkedin_url: firstNonEmpty([rawPerson.linkedin_url]),
+    email: firstNonEmpty([
+      normalizeEmail(rawPerson.email),
+      normalizeEmail(rawPerson.work_email),
+      normalizeEmail(rawPerson.personal_email),
+      firstEmailFromArray(rawPerson.emails),
+      firstEmailFromArray(rawPerson.work_emails),
+      firstEmailFromArray(rawPerson.personal_emails)
+    ]),
+    linkedin_url: firstNonEmpty([
+      rawPerson.linkedin_url,
+      rawPerson.linkedin_profile_url,
+      rawPerson.linkedin
+    ]),
     location
   };
 }
@@ -93,36 +146,33 @@ export async function enrichPersonFromApollo(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<PersonEnrichResult> {
   const personId = normalize(person.person_id);
-  const email = normalize(person.email);
+  const email = normalizeEmail(person.email);
   const linkedinUrl = normalize(person.linkedin_url);
   const fullName = normalize(person.full_name);
   const companyDomain = normalize(person.company_domain);
 
   let payload: Record<string, unknown> | null = null;
-
-  // Apollo person ids in this app are usually raw Apollo IDs.
-  if (personId && !personId.startsWith("linkedin:") && !personId.startsWith("email:") && !personId.startsWith("fallback:")) {
-    payload = await fetchApollo(`/api/v1/people/${encodeURIComponent(personId)}`, { method: "GET" }, env);
+  const matchBody: Record<string, unknown> = {};
+  if (hasRealApolloId(personId)) matchBody.id = personId;
+  if (email) matchBody.email = email;
+  if (linkedinUrl) matchBody.linkedin_url = linkedinUrl;
+  if (fullName) matchBody.name = fullName;
+  if (companyDomain) matchBody.organization_domain = companyDomain;
+  if (Object.keys(matchBody).length === 0) {
+    throw new Error("Cannot enrich person: missing email/linkedin/name/domain identifiers");
   }
+  payload = await fetchApollo(
+    resolvePeopleMatchPath(env),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(matchBody)
+    },
+    env
+  );
 
-  if (!payload) {
-    const matchBody: Record<string, unknown> = {};
-    if (email) matchBody.email = email;
-    if (linkedinUrl) matchBody.linkedin_url = linkedinUrl;
-    if (fullName) matchBody.name = fullName;
-    if (companyDomain) matchBody.organization_domain = companyDomain;
-    if (Object.keys(matchBody).length === 0) {
-      throw new Error("Cannot enrich person: missing email/linkedin/name/domain identifiers");
-    }
-    payload = await fetchApollo(
-      "/api/v1/people/match",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(matchBody)
-      },
-      env
-    );
+  if (!payload && hasRealApolloId(personId)) {
+    payload = await fetchApollo(`/api/v1/people/${encodeURIComponent(personId)}`, { method: "GET" }, env);
   }
 
   if (!payload) {
