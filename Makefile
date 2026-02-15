@@ -8,7 +8,7 @@ REMOTE_SSH_KEY ?= $(HOME)/.ssh/apollo-filter-app-server.pem
 REMOTE_APP_DIR ?= /home/ubuntu/apollo-filter-app-new
 REMOTE_SSH := ssh -i $(REMOTE_SSH_KEY) $(REMOTE_USER)@$(REMOTE_HOST)
 REMOTE_RSYNC := rsync -az --delete -e "ssh -i $(REMOTE_SSH_KEY)"
-REMOTE_RSYNC_PROGRESS := rsync -az --info=progress2 --human-readable -e "ssh -i $(REMOTE_SSH_KEY)"
+REMOTE_RSYNC_PROGRESS := rsync -az --progress -h -e "ssh -i $(REMOTE_SSH_KEY)"
 REMOTE_IMAGES := apollo-filter-app-new-backend apollo-filter-app-new-frontend apollo-filter-app-new-opencode
 LOCAL_DEPLOY_DIR ?= ./.deploy
 REMOTE_IMAGE_DIR ?= $(REMOTE_APP_DIR)/.deploy-images
