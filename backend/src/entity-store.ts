@@ -527,8 +527,16 @@ export async function getRunIngestionSummary(): Promise<Record<string, number>> 
 
 export async function listCompaniesFromDb(): Promise<Array<Record<string, string>>> {
   const result = await queryRows<Record<string, unknown>>(
-    `SELECT *
-     FROM companies ORDER BY updated_at DESC, company_name ASC`
+    `SELECT
+        c.*,
+        COALESCE(pc.people_count, 0)::int AS people_count
+     FROM companies c
+     LEFT JOIN (
+       SELECT company_id, COUNT(*)::int AS people_count
+       FROM people
+       GROUP BY company_id
+     ) pc ON pc.company_id = c.company_id
+     ORDER BY c.updated_at DESC, c.company_name ASC`
   );
   return result.map((row) => {
     const allValues = Object.fromEntries(Object.entries(row).map(([key, value]) => [key, String(value ?? "")]));
@@ -539,6 +547,63 @@ export async function listCompaniesFromDb(): Promise<Array<Record<string, string
       raw: ""
     };
   });
+}
+
+export async function getPersonByIdFromDb(personId: string): Promise<Record<string, string> | null> {
+  const result = await queryRows<Record<string, unknown>>(
+    `SELECT
+        p.person_id,
+        p.company_id,
+        COALESCE(c.company_name, '') AS company_name,
+        COALESCE(c.company_domain, '') AS company_domain,
+        p.full_name,
+        p.title,
+        p.email,
+        p.linkedin_url,
+        p.location,
+        p.source_run_id
+     FROM people p
+     LEFT JOIN companies c ON c.company_id = p.company_id
+     WHERE p.person_id = $1
+     LIMIT 1`,
+    [personId]
+  );
+  const row = result[0];
+  if (!row) return null;
+  return {
+    run_id: String(row.source_run_id ?? ""),
+    person_id: String(row.person_id ?? ""),
+    company_id: String(row.company_id ?? ""),
+    company_name: String(row.company_name ?? ""),
+    company_domain: String(row.company_domain ?? ""),
+    full_name: String(row.full_name ?? ""),
+    title: String(row.title ?? ""),
+    email: String(row.email ?? ""),
+    linkedin_url: String(row.linkedin_url ?? ""),
+    location: String(row.location ?? "")
+  };
+}
+
+export async function updatePersonFromEnrichment(
+  personId: string,
+  patch: Partial<Record<"full_name" | "title" | "email" | "linkedin_url" | "location", string>>
+): Promise<void> {
+  const updates: string[] = [];
+  const values: string[] = [];
+  const fields: Array<keyof typeof patch> = ["full_name", "title", "email", "linkedin_url", "location"];
+  for (const field of fields) {
+    const value = norm(patch[field]);
+    if (!value) continue;
+    updates.push(`${field} = $${values.length + 1}`);
+    values.push(value);
+  }
+  if (updates.length === 0) return;
+  await execSql(
+    `UPDATE people
+     SET ${updates.join(", ")}, updated_at = NOW()
+     WHERE person_id = $${values.length + 1}`,
+    [...values, personId]
+  );
 }
 
 export async function listPeopleFromDb(): Promise<Array<Record<string, string>>> {

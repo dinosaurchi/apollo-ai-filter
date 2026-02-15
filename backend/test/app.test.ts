@@ -1,6 +1,8 @@
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { app, runManager } from "../src/app";
+import * as entityStore from "../src/entity-store";
+import * as apolloEnrich from "../src/apollo-enrich";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -61,5 +63,57 @@ describe("GET /runs/:id", () => {
         status: "finished"
       }
     ]);
+  });
+});
+
+describe("POST /people/:personId/enrich", () => {
+  it("enriches a person and updates DB fields", async () => {
+    vi.spyOn(runManager, "listRuns").mockReturnValue([]);
+    vi.spyOn(entityStore, "getPersonByIdFromDb")
+      .mockResolvedValueOnce({
+        person_id: "person-1",
+        full_name: "Old Name",
+        email: "",
+        linkedin_url: "https://linkedin.com/in/person-1",
+        company_domain: "example.com",
+        company_id: "company-1",
+        company_name: "Example Co",
+        title: "",
+        location: "",
+        run_id: "run-1"
+      })
+      .mockResolvedValueOnce({
+        person_id: "person-1",
+        full_name: "New Name",
+        email: "new@example.com",
+        linkedin_url: "https://linkedin.com/in/person-1",
+        company_domain: "example.com",
+        company_id: "company-1",
+        company_name: "Example Co",
+        title: "VP Sales",
+        location: "USA",
+        run_id: "run-1"
+      });
+    const updateSpy = vi.spyOn(entityStore, "updatePersonFromEnrichment").mockResolvedValue();
+    vi.spyOn(apolloEnrich, "enrichPersonFromApollo").mockResolvedValue({
+      full_name: "New Name",
+      title: "VP Sales",
+      email: "new@example.com",
+      linkedin_url: "https://linkedin.com/in/person-1",
+      location: "USA"
+    });
+
+    const response = await request(app).post("/people/person-1/enrich");
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(updateSpy).toHaveBeenCalledWith("person-1", {
+      full_name: "New Name",
+      title: "VP Sales",
+      email: "new@example.com",
+      linkedin_url: "https://linkedin.com/in/person-1",
+      location: "USA"
+    });
+    expect(response.body.person.full_name).toBe("New Name");
   });
 });

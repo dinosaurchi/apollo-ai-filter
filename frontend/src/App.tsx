@@ -52,6 +52,7 @@ type CompanyRow = {
   company_id: string;
   company_name: string;
   company_domain: string;
+  people_count?: string;
   decision?: string;
   confidence?: string;
   evidence?: string;
@@ -438,6 +439,10 @@ export function App() {
   const [companyDetailTab, setCompanyDetailTab] = useState<"overview" | "people">("overview");
 
   const [allPeople, setAllPeople] = useState<PersonRow[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState("");
+  const [peopleStatusMessage, setPeopleStatusMessage] = useState("");
+  const [enrichingPersonId, setEnrichingPersonId] = useState<string | null>(null);
   const [peoplePage, setPeoplePage] = useState(1);
   const [peoplePageSize, setPeoplePageSize] = useState(DEFAULT_PAGE_SIZE);
   const [companyReviews, setCompanyReviews] = useState<ReviewRow[]>([]);
@@ -562,8 +567,40 @@ export function App() {
   }
 
   async function refreshPeople(): Promise<void> {
-    const response = await apiGet<{ ok: boolean; people: PersonRow[] }>("/people");
-    setAllPeople(response.people);
+    setPeopleLoading(true);
+    setPeopleError("");
+    try {
+      const response = await apiGet<{ ok: boolean; people: PersonRow[] }>("/people");
+      setAllPeople(response.people);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load people";
+      setPeopleError(message);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }
+
+  async function enrichPerson(personId: string): Promise<void> {
+    if (!personId || enrichingPersonId) return;
+    setPeopleStatusMessage("");
+    setPeopleError("");
+    setEnrichingPersonId(personId);
+    try {
+      const response = await fetch(`/api/people/${encodeURIComponent(personId)}/enrich`, { method: "POST" });
+      const contentType = response.headers.get("content-type") ?? "";
+      const isJson = contentType.includes("application/json");
+      const payload = isJson ? (await response.json()) as { ok: boolean; error?: string } : null;
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error ?? `Failed to enrich person (HTTP ${response.status})`);
+      }
+      await refreshPeople();
+      setPeopleStatusMessage("Person enriched and updated.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to enrich person";
+      setPeopleError(message);
+    } finally {
+      setEnrichingPersonId(null);
+    }
   }
 
   async function refreshReviews(): Promise<void> {
@@ -952,6 +989,7 @@ export function App() {
                 <tr>
                   <th>Company</th>
                   <th>Domain</th>
+                  <th>People/Leads</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -960,6 +998,7 @@ export function App() {
                   <tr key={`${company.run_id}-${company.company_id}`}>
                     <td>{company.company_name}</td>
                     <td>{company.company_domain}</td>
+                    <td>{company.people_count ?? "0"}</td>
                     <td>
                       <button onClick={() => void openCompanyDetail(company)}>Detail</button>
                     </td>
@@ -974,7 +1013,11 @@ export function App() {
       {view === "people" && (
         <section className="panel">
           <h2>People</h2>
-          <button onClick={() => void refreshPeople()}>Refresh</button>
+          <button onClick={() => void refreshPeople()} disabled={peopleLoading || Boolean(enrichingPersonId)}>
+            {peopleLoading ? "Loading..." : "Refresh"}
+          </button>
+          {peopleStatusMessage && <p className="status">{peopleStatusMessage}</p>}
+          {peopleError && <p className="error">{peopleError}</p>}
           <PaginationControls
             totalItems={allPeople.length}
             page={peoplePage}
@@ -994,6 +1037,7 @@ export function App() {
                 <col className="col-title" />
                 <col className="col-email" />
                 <col className="col-linkedin" />
+                <col className="col-actions" />
               </colgroup>
               <thead>
                 <tr>
@@ -1003,6 +1047,7 @@ export function App() {
                   <th>Title</th>
                   <th>Email</th>
                   <th>LinkedIn</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1016,6 +1061,14 @@ export function App() {
                     <td>{person.title ?? ""}</td>
                     <td>{person.email ?? ""}</td>
                     <td>{person.linkedin_url ?? ""}</td>
+                    <td>
+                      <button
+                        onClick={() => void enrichPerson(person.person_id ?? "")}
+                        disabled={!person.person_id || enrichingPersonId === (person.person_id ?? "")}
+                      >
+                        {enrichingPersonId === (person.person_id ?? "") ? "Enriching..." : "Enrich"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

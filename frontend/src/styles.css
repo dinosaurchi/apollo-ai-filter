@@ -165,27 +165,31 @@ td {
 }
 
 .people-table .col-company {
-  width: 30%;
+  width: 18%;
 }
 
 .people-table .col-apollo-id {
-  width: 12%;
+  width: 15%;
 }
 
 .people-table .col-name {
-  width: 11%;
+  width: 12%;
 }
 
 .people-table .col-title {
-  width: 39%;
+  width: 25%;
 }
 
 .people-table .col-email {
-  width: 4%;
+  width: 12%;
 }
 
 .people-table .col-linkedin {
-  width: 4%;
+  width: 10%;
+}
+
+.people-table .col-actions {
+  width: 8%;
 }
 
 .company-people-table .col-apollo-id {

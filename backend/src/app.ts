@@ -6,6 +6,7 @@ import { RunManager } from "./run-manager";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import {
+  getPersonByIdFromDb,
   getRunIngestion,
   ingestCompanies,
   ingestPeople,
@@ -21,8 +22,10 @@ import {
   markRunIngestionInProgress,
   markRunIngestionPending,
   resolveCompanyReview,
-  resolvePeopleReview
+  resolvePeopleReview,
+  updatePersonFromEnrichment
 } from "./entity-store";
+import { enrichPersonFromApollo } from "./apollo-enrich";
 
 export const app = express();
 export const runManager = new RunManager(
@@ -392,6 +395,29 @@ app.get("/people", async (_req, res, next) => {
     await syncRunsToDb();
     const people = await listPeopleFromDb();
     res.json({ ok: true, people });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/people/:personId/enrich", async (req, res, next) => {
+  try {
+    await syncRunsToDb();
+    const person = await getPersonByIdFromDb(req.params.personId);
+    if (!person) {
+      res.status(404).json({ ok: false, error: "Person not found" });
+      return;
+    }
+    const enriched = await enrichPersonFromApollo({
+      person_id: person.person_id,
+      full_name: person.full_name,
+      email: person.email,
+      linkedin_url: person.linkedin_url,
+      company_domain: person.company_domain
+    });
+    await updatePersonFromEnrichment(person.person_id, enriched);
+    const updated = await getPersonByIdFromDb(person.person_id);
+    res.json({ ok: true, person: updated, enriched });
   } catch (error) {
     next(error);
   }
