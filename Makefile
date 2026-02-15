@@ -77,8 +77,8 @@ ssh-remote:
 
 deploy-remote:
 	@set -eu; \
-	echo "Building local images (backend/frontend/opencode)..."; \
-	$(DOCKER_COMPOSE) build backend frontend opencode; \
+	echo "Building local images (backend/frontend/opencode) for linux/amd64..."; \
+	DOCKER_DEFAULT_PLATFORM=linux/amd64 $(DOCKER_COMPOSE) build backend frontend opencode; \
 	echo "Preparing remote directory $(REMOTE_APP_DIR)..."; \
 	$(REMOTE_SSH) "mkdir -p '$(REMOTE_APP_DIR)/backend' '$(REMOTE_APP_DIR)/backend/ai-workspace' '$(REMOTE_IMAGE_DIR)'"; \
 	echo "Syncing docker-compose and env files..."; \
