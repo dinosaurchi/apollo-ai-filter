@@ -84,7 +84,7 @@ describe("ConfigGenerator", () => {
     expect(messageCall).toBe(2);
   });
 
-  it("fails after max attempts when output never validates", async () => {
+  it("auto-repairs simple invalid output into a valid config", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/session")) {
@@ -106,9 +106,62 @@ describe("ConfigGenerator", () => {
     const job = generator.startJob({ prompt: "Generate config", csvHeaders: [] });
     const done = await waitForDone(generator, job.id);
 
-    expect(done.status).toBe("failed");
-    expect(done.error).toContain("Unable to generate a schema-valid config");
-    expect(done.validationErrors.length).toBeGreaterThan(0);
+    expect(done.status).toBe("completed");
+    const parsed = JSON.parse(done.configJson ?? "{}") as { steps?: unknown[] };
+    expect(Array.isArray(parsed.steps)).toBe(true);
+    expect(parsed.steps?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("unwraps nested config response and repairs missing required nested fields", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/session")) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ id: "session-3" })
+        } as Response;
+      }
+      if (url.includes("/session/session-3/message")) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            parts: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  config: {
+                    steps: [
+                      {
+                        id: "01-web-a3",
+                        type: "web_ai",
+                        ai: {},
+                        task: {
+                          criteria_name: "x",
+                          read_fields: ["name"],
+                          instructions: ["find"],
+                          decision_field: "Decision-1",
+                          confidence_field: "Confidence-1"
+                        }
+                      }
+                    ]
+                  }
+                })
+              }
+            ]
+          })
+        } as Response;
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const generator = new ConfigGenerator("http://localhost:3000", "opencode/gpt-5-nano", 3);
+    const job = generator.startJob({ prompt: "deep web research", csvHeaders: ["name", "website"] });
+    const done = await waitForDone(generator, job.id);
+
+    expect(done.status).toBe("completed");
+    const parsed = JSON.parse(done.configJson ?? "{}") as { steps?: Array<Record<string, unknown>> };
+    const firstStep = Array.isArray(parsed.steps) ? parsed.steps[0] : null;
+    expect(firstStep?.type).toBe("web_ai");
+    expect(firstStep?.scrape).toBeTruthy();
   });
 });
-

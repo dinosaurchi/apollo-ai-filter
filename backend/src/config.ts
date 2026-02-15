@@ -22,7 +22,7 @@ const EnvSchema = z.object({
   OPENCODE_SERVER_URL: z.string().min(1).default("http://127.0.0.1:3000"),
   ANALYZER_NODE_OPTIONS: z.string().min(1).default("--max-old-space-size=4096"),
   AI_CONFIG_GENERATOR_MODEL: z.string().min(1).default("opencode/gpt-5-nano"),
-  AI_CONFIG_GENERATOR_MAX_ATTEMPTS: z.coerce.number().int().positive().max(10).default(6)
+  AI_CONFIG_GENERATOR_MAX_ATTEMPTS: z.coerce.number().int().positive().max(12).default(10)
 });
 
 export const env = EnvSchema.parse(process.env);
