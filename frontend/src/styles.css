@@ -79,6 +79,25 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.config-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ai-config-generator {
+  margin-top: 0.75rem;
+  border: 1px solid #2b3b5d;
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: #0a1323;
+}
+
+.prompt-input {
+  min-height: 120px;
+  margin-top: 0;
+}
+
 .error-list,
 .error {
   color: #ff9aa9;

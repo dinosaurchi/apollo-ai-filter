@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
@@ -39,6 +39,105 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Apollo Filter App" })).toBeInTheDocument();
     expect(await screen.findByText("Backend is healthy")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run Monitor" })).toBeInTheDocument();
+  });
+
+  it("generates config via AI mode and fills config JSON", async () => {
+    class EventSourceMock {
+      public addEventListener(): void {}
+      public close(): void {}
+    }
+    vi.stubGlobal("EventSource", EventSourceMock);
+    let progressCalls = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/health")) {
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      if (url.endsWith("/api/runs")) {
+        return { ok: true, json: async () => ({ ok: true, runs: [] }) } as Response;
+      }
+      if (url.endsWith("/api/config/generate/start") && (init?.method ?? "GET") === "POST") {
+        return { ok: true, json: async () => ({ ok: true, jobId: "cfg-1" }) } as Response;
+      }
+      if (url.includes("/api/config/generate/progress?jobId=cfg-1")) {
+        progressCalls += 1;
+        if (progressCalls === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              job: {
+                id: "cfg-1",
+                status: "running",
+                percent: 40,
+                stage: "generating",
+                attempt: 1,
+                maxAttempts: 6,
+                error: null,
+                validationErrors: []
+              }
+            })
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            job: {
+              id: "cfg-1",
+              status: "completed",
+              percent: 100,
+              stage: "completed",
+              attempt: 2,
+              maxAttempts: 6,
+              error: null,
+              validationErrors: []
+            }
+          })
+        } as Response;
+      }
+      if (url.includes("/api/config/generate/result?jobId=cfg-1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            ready: true,
+            configJson: JSON.stringify({
+              steps: [
+                {
+                  id: "01-ai-text-A1",
+                  type: "ai_text",
+                  input: { source: "normalized" },
+                  ai: {},
+                  task: {
+                    criteria_name: "x",
+                    read_fields: ["name"],
+                    instructions: ["y"],
+                    decision_field: "Decision-1",
+                    confidence_field: "Confidence-1"
+                  }
+                }
+              ]
+            })
+          })
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ ok: true }) } as Response;
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate with AI" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your filtering pipeline idea in plain English..."), {
+      target: { value: "Find mortgage lenders and enrich decision confidence." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate Config" }));
+
+    expect(await screen.findByText(/Generator status:/)).toBeInTheDocument();
+    const configArea = await screen.findByPlaceholderText("Generated config will appear here. You can edit it before submitting.");
+    await waitFor(() => {
+      expect((configArea as HTMLTextAreaElement).value).toContain("\"steps\"");
+    });
   });
 
   it("shows step input/output row counts in run overview detail", async () => {

@@ -1,6 +1,6 @@
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { app, runManager } from "../src/app";
+import { app, configGenerator, runManager } from "../src/app";
 import * as entityStore from "../src/entity-store";
 import * as apolloEnrich from "../src/apollo-enrich";
 
@@ -115,5 +115,52 @@ describe("POST /people/:personId/enrich", () => {
       location: "USA"
     });
     expect(response.body.person.full_name).toBe("New Name");
+  });
+});
+
+describe("config generation endpoints", () => {
+  it("starts and returns completed config generation result", async () => {
+    vi.spyOn(configGenerator, "startJob").mockReturnValue({
+      id: "job-1",
+      status: "running",
+      percent: 0,
+      stage: "queued",
+      attempt: 0,
+      maxAttempts: 6,
+      error: null,
+      validationErrors: [],
+      configJson: null,
+      updatedAt: new Date().toISOString()
+    });
+    vi.spyOn(configGenerator, "getJob").mockReturnValue({
+      id: "job-1",
+      status: "completed",
+      percent: 100,
+      stage: "completed",
+      attempt: 2,
+      maxAttempts: 6,
+      error: null,
+      validationErrors: [],
+      configJson: "{\"steps\":[]}",
+      updatedAt: new Date().toISOString()
+    });
+
+    const start = await request(app).post("/config/generate/start").send({
+      prompt: "Generate a config",
+      csvHeaders: ["id", "name"]
+    });
+    expect(start.status).toBe(202);
+    expect(start.body.ok).toBe(true);
+    expect(start.body.jobId).toBe("job-1");
+
+    const progress = await request(app).get("/config/generate/progress").query({ jobId: "job-1" });
+    expect(progress.status).toBe(200);
+    expect(progress.body.job.status).toBe("completed");
+
+    const result = await request(app).get("/config/generate/result").query({ jobId: "job-1" });
+    expect(result.status).toBe(200);
+    expect(result.body.ok).toBe(true);
+    expect(result.body.ready).toBe(true);
+    expect(result.body.configJson).toBe("{\"steps\":[]}");
   });
 });

@@ -47,6 +47,17 @@ type StepSummaryJobProgress = {
   percent: number;
 };
 
+type ConfigGenerationJob = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  percent: number;
+  stage: string;
+  attempt: number;
+  maxAttempts: number;
+  error: string | null;
+  validationErrors: string[];
+};
+
 type CompanyRow = {
   run_id: string;
   company_id: string;
@@ -362,6 +373,16 @@ async function apiPost<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as T;
+}
+
 async function apiGetWithProgress<T>(
   path: string,
   onProgress: (percent: number | null) => void
@@ -403,6 +424,13 @@ export function App() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [configText, setConfigText] = useState("");
+  const [configMode, setConfigMode] = useState<"json" | "ai">("json");
+  const [configPrompt, setConfigPrompt] = useState("");
+  const [configGenerationLoading, setConfigGenerationLoading] = useState(false);
+  const [configGenerationPercent, setConfigGenerationPercent] = useState(0);
+  const [configGenerationStage, setConfigGenerationStage] = useState("");
+  const [configGenerationAttempts, setConfigGenerationAttempts] = useState("0/0");
+  const [configGenerationError, setConfigGenerationError] = useState("");
   const [configErrors, setConfigErrors] = useState<string[]>([]);
   const [missingColumns, setMissingColumns] = useState<string[]>([]);
   const [submitMessage, setSubmitMessage] = useState<string>("");
@@ -507,8 +535,9 @@ export function App() {
       Boolean(csvFile)
       && configErrors.length === 0
       && configText.trim().length > 0
+      && !configGenerationLoading
       && !submitting,
-    [csvFile, configErrors, configText, submitting]
+    [csvFile, configErrors, configText, configGenerationLoading, submitting]
   );
 
   const pagedRuns = useMemo(() => {
@@ -682,6 +711,56 @@ export function App() {
       setSubmitMessage(message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function generateConfigWithAi(): Promise<void> {
+    if (!configPrompt.trim()) {
+      setConfigGenerationError("Please provide a prompt describing the pipeline.");
+      return;
+    }
+    setConfigGenerationLoading(true);
+    setConfigGenerationPercent(0);
+    setConfigGenerationStage("Starting...");
+    setConfigGenerationAttempts("0/0");
+    setConfigGenerationError("");
+    try {
+      const start = await apiPostJson<{ ok: boolean; jobId: string }>("/config/generate/start", {
+        prompt: configPrompt,
+        csvHeaders
+      });
+      const jobId = start.jobId;
+      while (true) {
+        const progress = await apiGet<{ ok: boolean; job: ConfigGenerationJob }>(
+          `/config/generate/progress?jobId=${encodeURIComponent(jobId)}`
+        );
+        const job = progress.job;
+        setConfigGenerationPercent(job.percent);
+        setConfigGenerationStage(job.stage);
+        setConfigGenerationAttempts(`${job.attempt}/${job.maxAttempts}`);
+        if (job.status === "failed") {
+          const validationText = job.validationErrors.length > 0
+            ? `\nValidation: ${job.validationErrors.slice(0, 3).join(" | ")}`
+            : "";
+          throw new Error((job.error ?? "Config generation failed") + validationText);
+        }
+        if (job.status === "completed") break;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      const result = await apiGet<{ ok: boolean; ready: boolean; configJson?: string }>(
+        `/config/generate/result?jobId=${encodeURIComponent(jobId)}`
+      );
+      if (!result.ready || !result.configJson) {
+        throw new Error("Config generation completed but no config payload was returned.");
+      }
+      onConfigTextChange(result.configJson);
+      setConfigGenerationStage("Completed");
+      setSubmitMessage("AI generated a valid config. Review it and submit the run.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to generate config";
+      setConfigGenerationError(message);
+    } finally {
+      setConfigGenerationLoading(false);
     }
   }
 
@@ -890,11 +969,47 @@ export function App() {
               }}
             />
           </div>
+          <div className="config-mode-toggle">
+            <button
+              className={configMode === "json" ? "active" : ""}
+              onClick={() => setConfigMode("json")}
+              disabled={configGenerationLoading}
+            >
+              Paste JSON
+            </button>
+            <button
+              className={configMode === "ai" ? "active" : ""}
+              onClick={() => setConfigMode("ai")}
+              disabled={configGenerationLoading}
+            >
+              Generate with AI
+            </button>
+          </div>
+          {configMode === "ai" && (
+            <div className="ai-config-generator">
+              <textarea
+                className="config-input prompt-input"
+                value={configPrompt}
+                onChange={(event) => setConfigPrompt(event.target.value)}
+                placeholder="Describe your filtering pipeline idea in plain English..."
+              />
+              <button onClick={() => void generateConfigWithAi()} disabled={configGenerationLoading}>
+                {configGenerationLoading ? "Generating..." : "Generate Config"}
+              </button>
+              <p className="status">
+                Generator status: {configGenerationStage || "Idle"} | Attempts: {configGenerationAttempts}
+                {configGenerationLoading ? ` | ${configGenerationPercent}%` : ""}
+              </p>
+              {configGenerationError && <p className="error">{configGenerationError}</p>}
+            </div>
+          )}
           <textarea
             className="config-input"
             value={configText}
             onChange={(event) => onConfigTextChange(event.target.value)}
-            placeholder="Paste JSON config (same schema as mortgage-lender.mvp.json)"
+            placeholder={configMode === "json"
+              ? "Paste JSON config (same schema as mortgage-lender.mvp.json)"
+              : "Generated config will appear here. You can edit it before submitting."}
           />
           {configErrors.length > 0 && (
             <div className="error-list">

@@ -26,6 +26,7 @@ import {
   updatePersonFromEnrichment
 } from "./entity-store";
 import { enrichPersonFromApollo } from "./apollo-enrich";
+import { ConfigGenerator } from "./config-generator";
 
 export const app = express();
 export const runManager = new RunManager(
@@ -33,6 +34,11 @@ export const runManager = new RunManager(
   env.ANALYZE_SCRIPT_DIR,
   env.OPENCODE_SERVER_URL,
   env.ANALYZER_NODE_OPTIONS
+);
+export const configGenerator = new ConfigGenerator(
+  env.OPENCODE_SERVER_URL,
+  env.AI_CONFIG_GENERATOR_MODEL,
+  env.AI_CONFIG_GENERATOR_MAX_ATTEMPTS
 );
 export const runManagerReady = runManager.init();
 
@@ -143,6 +149,60 @@ app.post("/runs", upload.single("csvFile"), async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.post("/config/generate/start", (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const prompt = String(body.prompt ?? "").trim();
+    const csvHeaders = Array.isArray(body.csvHeaders)
+      ? body.csvHeaders.filter((value): value is string => typeof value === "string")
+      : [];
+    if (!prompt) {
+      res.status(400).json({ ok: false, error: "prompt is required" });
+      return;
+    }
+    const job = configGenerator.startJob({ prompt, csvHeaders });
+    res.status(202).json({ ok: true, jobId: job.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/config/generate/progress", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = configGenerator.getJob(jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Config generation job not found" });
+    return;
+  }
+  res.json({ ok: true, job });
+});
+
+app.get("/config/generate/result", (req, res) => {
+  const jobId = String(req.query.jobId ?? "");
+  if (!jobId) {
+    res.status(400).json({ ok: false, error: "jobId is required" });
+    return;
+  }
+  const job = configGenerator.getJob(jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: "Config generation job not found" });
+    return;
+  }
+  if (job.status === "failed") {
+    res.status(500).json({ ok: false, error: job.error ?? "Config generation failed", validationErrors: job.validationErrors });
+    return;
+  }
+  if (job.status !== "completed" || !job.configJson) {
+    res.status(202).json({ ok: true, ready: false });
+    return;
+  }
+  res.json({ ok: true, ready: true, configJson: job.configJson });
 });
 
 app.get("/runs", (_req, res) => {
