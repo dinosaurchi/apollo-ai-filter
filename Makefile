@@ -81,7 +81,7 @@ deploy-remote:
 	echo "Building local images (backend/frontend/opencode) for linux/amd64..."; \
 	DOCKER_DEFAULT_PLATFORM=linux/amd64 $(DOCKER_COMPOSE) build backend frontend opencode; \
 	echo "Preparing remote directory $(REMOTE_APP_DIR)..."; \
-	$(REMOTE_SSH) "mkdir -p '$(REMOTE_APP_DIR)/backend' '$(REMOTE_APP_DIR)/backend/ai-workspace' '$(REMOTE_IMAGE_DIR)' '$(REMOTE_USER_HOME)/.config/opencode' '$(REMOTE_USER_HOME)/.local/share/opencode' '$(REMOTE_USER_HOME)/.local/state/opencode' && chown -R '$(REMOTE_USER):$(REMOTE_USER)' '$(REMOTE_USER_HOME)/.config/opencode' '$(REMOTE_USER_HOME)/.local/share/opencode' '$(REMOTE_USER_HOME)/.local/state/opencode'"; \
+	$(REMOTE_SSH) "mkdir -p '$(REMOTE_APP_DIR)/backend' '$(REMOTE_APP_DIR)/backend/ai-workspace' '$(REMOTE_IMAGE_DIR)' '$(REMOTE_USER_HOME)/.config/opencode' '$(REMOTE_USER_HOME)/.local/share/opencode' '$(REMOTE_USER_HOME)/.local/state/opencode' && chown -R '$(REMOTE_USER):$(REMOTE_USER)' '$(REMOTE_USER_HOME)/.config/opencode' '$(REMOTE_USER_HOME)/.local/share/opencode' '$(REMOTE_USER_HOME)/.local/state/opencode' 2>/dev/null || true"; \
 	echo "Syncing docker-compose and env files..."; \
 	$(REMOTE_RSYNC) docker-compose.yml "$(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_APP_DIR)/docker-compose.yml"; \
 	$(REMOTE_RSYNC) backend/.env "$(REMOTE_USER)@$(REMOTE_HOST):$(REMOTE_APP_DIR)/backend/.env"; \
