@@ -76,7 +76,7 @@ ssh-remote:
 	$(REMOTE_SSH)
 
 deploy-remote:
-	@set -eu; \
+	@set -euo pipefail; \
 	echo "Building local images (backend/frontend/opencode) for linux/amd64..."; \
 	DOCKER_DEFAULT_PLATFORM=linux/amd64 $(DOCKER_COMPOSE) build backend frontend opencode; \
 	echo "Preparing remote directory $(REMOTE_APP_DIR)..."; \
@@ -88,8 +88,13 @@ deploy-remote:
 	for image in $(REMOTE_IMAGES); do \
 		local_archive="$(LOCAL_DEPLOY_DIR)/$${image}.tar.gz"; \
 		remote_archive="$(REMOTE_IMAGE_DIR)/$${image}.tar.gz"; \
+		docker image inspect "$$image" >/dev/null; \
 		echo "Exporting $$image to $$local_archive..."; \
 		docker save "$$image" | gzip -1 > "$$local_archive"; \
+		if [ "$$(stat -f%z "$$local_archive")" -lt 1024 ]; then \
+			echo "Archive $$local_archive is unexpectedly small; aborting."; \
+			exit 1; \
+		fi; \
 		echo "Uploading $$image with rsync progress..."; \
 		$(REMOTE_RSYNC_PROGRESS) "$$local_archive" "$(REMOTE_USER)@$(REMOTE_HOST):$$remote_archive"; \
 		echo "Loading $$image on remote host..."; \
@@ -97,6 +102,6 @@ deploy-remote:
 		rm -f "$$local_archive"; \
 	done; \
 	echo "Starting services on remote host..."; \
-	$(REMOTE_SSH) "cd '$(REMOTE_APP_DIR)' && docker compose up -d --remove-orphans"; \
+	$(REMOTE_SSH) "cd '$(REMOTE_APP_DIR)' && FRONTEND_PORT=80 docker compose up -d --remove-orphans"; \
 	echo "Remote deployment complete. Current remote services:"; \
 	$(REMOTE_SSH) "cd '$(REMOTE_APP_DIR)' && docker compose ps"
