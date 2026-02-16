@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-02-16",
+  "sources": [
+    "https://www.bls.gov/cew/classifications/industry/sic-industry-titles.htm",
+    "https://www.osha.gov/sic-manual/6162",
+    "https://www.osha.gov/sic-manual/6163",
+    "https://www.osha.gov/sic-manual/6021",
+    "https://www.osha.gov/sic-manual/6061",
+    "https://www.osha.gov/sic-manual/6531",
+    "https://www.osha.gov/sic-manual/6541"
+  ],
+  "entries": [
+    {
+      "key": "mortgage_lender",
+      "label": "Mortgage Bankers and Loan Correspondents",
+      "keywords": ["mortgage lender", "mortgage lending", "mortgage company", "real estate credit", "loan correspondent"],
+      "codes": ["6162"]
+    },
+    {
+      "key": "loan_broker",
+      "label": "Loan Brokers",
+      "keywords": ["loan broker", "mortgage broker", "brokerage", "arranging loans"],
+      "codes": ["6163"]
+    },
+    {
+      "key": "commercial_banking_national",
+      "label": "National Commercial Banks",
+      "keywords": ["commercial bank", "national bank", "banking"],
+      "codes": ["6021"]
+    },
+    {
+      "key": "commercial_banking_state",
+      "label": "State Commercial Banks",
+      "keywords": ["state commercial bank", "banking"],
+      "codes": ["6022"]
+    },
+    {
+      "key": "credit_unions_federal",
+      "label": "Credit Unions, Federally Chartered",
+      "keywords": ["credit union", "federal credit union"],
+      "codes": ["6061"]
+    },
+    {
+      "key": "credit_unions_state",
+      "label": "Credit Unions, Not Federally Chartered",
+      "keywords": ["credit union", "state credit union"],
+      "codes": ["6062"]
+    },
+    {
+      "key": "real_estate_agents_managers",
+      "label": "Real Estate Agents and Managers",
+      "keywords": ["real estate agent", "real estate broker", "realtor", "property manager"],
+      "codes": ["6531"]
+    },
+    {
+      "key": "title_abstract",
+      "label": "Title Abstract Offices",
+      "keywords": ["title abstract", "title search", "title office", "escrow"],
+      "codes": ["6541"]
+    },
+    {
+      "key": "insurance_agency",
+      "label": "Insurance Agents, Brokers, and Service",
+      "keywords": ["insurance agency", "insurance brokerage", "insurance broker"],
+      "codes": ["6411"]
+    },
+    {
+      "key": "title_insurance",
+      "label": "Title Insurance",
+      "keywords": ["title insurance", "title insurer"],
+      "codes": ["6361"]
+    },
+    {
+      "key": "computer_programming",
+      "label": "Computer Programming Services",
+      "keywords": ["software development", "custom software", "programming services"],
+      "codes": ["7371"]
+    },
+    {
+      "key": "software_prepackaged",
+      "label": "Prepackaged Software",
+      "keywords": ["software publisher", "software publishing", "saas", "prepackaged software"],
+      "codes": ["7372"]
+    },
+    {
+      "key": "systems_design",
+      "label": "Computer Integrated Systems Design",
+      "keywords": ["systems integration", "systems design", "it consulting"],
+      "codes": ["7373"]
+    },
+    {
+      "key": "data_processing",
+      "label": "Data Processing and Preparation",
+      "keywords": ["data processing", "web hosting", "data center"],
+      "codes": ["7374"]
+    },
+    {
+      "key": "help_supply",
+      "label": "Help Supply Services",
+      "keywords": ["staffing", "temporary staffing", "help supply", "temp agency"],
+      "codes": ["7363"]
+    },
+    {
+      "key": "management_consulting",
+      "label": "Management Consulting Services",
+      "keywords": ["management consulting", "business consulting", "strategy consulting"],
+      "codes": ["8742"]
+    },
+    {
+      "key": "medical_doctors",
+      "label": "Offices and Clinics of Medical Doctors",
+      "keywords": ["medical practice", "doctor office", "physician"],
+      "codes": ["8011"]
+    },
+    {
+      "key": "dentists",
+      "label": "Offices and Clinics of Dentists",
+      "keywords": ["dentist", "dental clinic", "dental office"],
+      "codes": ["8021"]
+    },
+    {
+      "key": "general_hospitals",
+      "label": "General Medical and Surgical Hospitals",
+      "keywords": ["hospital", "medical center", "general hospital"],
+      "codes": ["8062"]
+    }
+  ]
+}

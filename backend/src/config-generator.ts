@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { RunConfigSchema } from "./run-config";
 import type { ZodError } from "zod";
 
@@ -31,8 +33,44 @@ type ConfigGenerationInput = {
   csvHeaders: string[];
 };
 
+type CodeReferenceEntry = {
+  key: string;
+  label: string;
+  keywords: string[];
+  codes: string[];
+};
+
+type CodeReferenceCatalog = {
+  entries: CodeReferenceEntry[];
+};
+
+type CodeSelection = {
+  matchedNaicsLabels: string[];
+  matchedSicLabels: string[];
+  naicsCodes: string[];
+  sicCodes: string[];
+};
+
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MODEL = "opencode/gpt-5-nano";
+const NAICS_REFERENCE_CANDIDATE_PATHS = [
+  path.resolve(process.cwd(), "data", "company_naics_codes.json"),
+  path.resolve(process.cwd(), "..", "data", "company_naics_codes.json")
+];
+const SIC_REFERENCE_CANDIDATE_PATHS = [
+  path.resolve(process.cwd(), "data", "company_sic_codes.json"),
+  path.resolve(process.cwd(), "..", "data", "company_sic_codes.json")
+];
+
+function resolveFirstExistingPath(candidates: string[]): string {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0] ?? "";
+}
+
+const NAICS_REFERENCE_PATH = resolveFirstExistingPath(NAICS_REFERENCE_CANDIDATE_PATHS);
+const SIC_REFERENCE_PATH = resolveFirstExistingPath(SIC_REFERENCE_CANDIDATE_PATHS);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -48,6 +86,70 @@ function toSnakeCase(value: string): string {
     .replace(/[^0-9A-Za-z]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
+}
+
+function readCodeReferenceCatalog(filePath: string): CodeReferenceCatalog {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { entries: [] };
+    }
+    const entriesRaw = (parsed as Record<string, unknown>).entries;
+    if (!Array.isArray(entriesRaw)) return { entries: [] };
+    const entries = entriesRaw
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+      .map((entry) => ({
+        key: normalize(entry.key),
+        label: normalize(entry.label),
+        keywords: Array.isArray(entry.keywords)
+          ? entry.keywords.map((value) => normalize(value).toLowerCase()).filter((value) => value.length > 0)
+          : [],
+        codes: Array.isArray(entry.codes)
+          ? entry.codes.map((value) => normalize(value)).filter((value) => value.length > 0)
+          : []
+      }))
+      .filter((entry) => entry.key.length > 0 && entry.codes.length > 0);
+    return { entries };
+  } catch {
+    return { entries: [] };
+  }
+}
+
+function deriveCodesFromPrompt(prompt: string, naicsCatalog: CodeReferenceCatalog, sicCatalog: CodeReferenceCatalog): CodeSelection {
+  const text = prompt.toLowerCase();
+  const matchedNaicsLabels: string[] = [];
+  const matchedSicLabels: string[] = [];
+  const naicsCodes = new Set<string>();
+  const sicCodes = new Set<string>();
+
+  for (const entry of naicsCatalog.entries) {
+    if (!entry.keywords.some((keyword) => text.includes(keyword))) continue;
+    matchedNaicsLabels.push(entry.label || entry.key);
+    for (const code of entry.codes) naicsCodes.add(code);
+  }
+  for (const entry of sicCatalog.entries) {
+    if (!entry.keywords.some((keyword) => text.includes(keyword))) continue;
+    matchedSicLabels.push(entry.label || entry.key);
+    for (const code of entry.codes) sicCodes.add(code);
+  }
+
+  // Default fallback for mortgage-focused requests.
+  if (naicsCodes.size === 0 && /(mortgage|lender|home loan|refinance|heloc)/i.test(prompt)) {
+    naicsCodes.add("522292");
+    naicsCodes.add("522310");
+  }
+  if (sicCodes.size === 0 && /(mortgage|lender|home loan|refinance|heloc)/i.test(prompt)) {
+    sicCodes.add("6162");
+    sicCodes.add("6163");
+  }
+
+  return {
+    matchedNaicsLabels,
+    matchedSicLabels,
+    naicsCodes: Array.from(naicsCodes),
+    sicCodes: Array.from(sicCodes)
+  };
 }
 
 function parseProviderModel(model: string): ProviderModel {
@@ -178,8 +280,31 @@ function chooseReadFields(csvHeaders: string[]): string[] {
   return out;
 }
 
-function buildDefaultConfig(input: ConfigGenerationInput): Record<string, unknown> {
+function buildDefaultConfig(input: ConfigGenerationInput, selection: CodeSelection): Record<string, unknown> {
   const readFields = chooseReadFields(input.csvHeaders);
+  const keepRules: Array<Record<string, unknown>> = [];
+  if (selection.naicsCodes.length > 0) {
+    keepRules.push({
+      type: "code_in",
+      field: "naics_codes",
+      values: selection.naicsCodes
+    });
+  }
+  if (selection.sicCodes.length > 0) {
+    keepRules.push({
+      type: "code_in",
+      field: "sic_codes",
+      values: selection.sicCodes
+    });
+  }
+  if (keepRules.length === 0) {
+    keepRules.push({
+      type: "regex",
+      field: "profile_text",
+      pattern: "\\bmortgage\\b|\\bhome loan\\b|\\brefinance\\b|\\bheloc\\b",
+      flags: "i"
+    });
+  }
   return {
     run: {
       name: "ai-generated-run",
@@ -194,9 +319,25 @@ function buildDefaultConfig(input: ConfigGenerationInput): Record<string, unknow
     },
     steps: [
       {
-        id: "01-ai-text-A1",
-        type: "ai_text",
+        id: "01-filter-A1",
+        type: "filter",
         input: { source: "normalized" },
+        rules: {
+          keep_if_any: keepRules,
+          drop_if_any: [
+            {
+              type: "regex",
+              field: "profile_text",
+              pattern: "broker|servicer|property management|real estate agent|title insurance|escrow|appraisal|bank|credit union",
+              flags: "i"
+            }
+          ]
+        }
+      },
+      {
+        id: "02-ai-text-A2",
+        type: "ai_text",
+        input: { source: "prev_step" },
         ai: {
           model: DEFAULT_MODEL,
           concurrency: 2,
@@ -218,13 +359,106 @@ function buildDefaultConfig(input: ConfigGenerationInput): Record<string, unknow
       }
     ],
     finalize: {
-      output_csv: "A1.csv"
+      output_csv: "A2.csv"
     }
   };
 }
 
-function repairCandidate(candidateInput: Record<string, unknown>, input: ConfigGenerationInput): Record<string, unknown> {
-  const defaultConfig = buildDefaultConfig(input);
+function getDefaultFilterStep(input: ConfigGenerationInput, selection: CodeSelection): Record<string, unknown> {
+  const steps = (buildDefaultConfig(input, selection).steps ?? []) as Array<Record<string, unknown>>;
+  const first = steps[0];
+  return first && typeof first === "object"
+    ? ({ ...first } as Record<string, unknown>)
+    : {
+        id: "01-filter-A1",
+        type: "filter",
+        input: { source: "normalized" },
+        rules: { keep_if_any: [], drop_if_any: [] }
+      };
+}
+
+function upsertCodeRule(
+  rules: Record<string, unknown>,
+  field: string,
+  values: string[]
+): void {
+  if (values.length === 0) return;
+  const keepRaw = Array.isArray(rules.keep_if_any) ? rules.keep_if_any : [];
+  const keep = keepRaw
+    .filter((rule): rule is Record<string, unknown> => Boolean(rule && typeof rule === "object"))
+    .map((rule) => ({ ...rule }));
+  const existingIndex = keep.findIndex(
+    (rule) => normalize(rule.type) === "code_in" && normalize(rule.field) === field
+  );
+  const dedupedValues = Array.from(new Set(values.map((value) => normalize(value)).filter((value) => value.length > 0)));
+  if (dedupedValues.length === 0) {
+    rules.keep_if_any = keep;
+    return;
+  }
+  if (existingIndex >= 0) {
+    const existingValues = Array.isArray(keep[existingIndex].values)
+      ? (keep[existingIndex].values as unknown[])
+          .map((value) => normalize(value))
+          .filter((value) => value.length > 0)
+      : [];
+    keep[existingIndex].values = Array.from(new Set([...existingValues, ...dedupedValues]));
+    keep[existingIndex].type = "code_in";
+    keep[existingIndex].field = field;
+  } else {
+    keep.push({ type: "code_in", field, values: dedupedValues });
+  }
+  rules.keep_if_any = keep;
+}
+
+function ensureStep01Filter(
+  stepsInput: Array<Record<string, unknown>>,
+  input: ConfigGenerationInput,
+  selection: CodeSelection
+): Array<Record<string, unknown>> {
+  const defaultFilter = getDefaultFilterStep(input, selection);
+  const steps = stepsInput.map((step) => ({ ...step }));
+  let step01 = steps[0];
+
+  if (!step01 || normalize(step01.type) !== "filter") {
+    step01 = defaultFilter;
+    steps.unshift(step01);
+  }
+
+  step01.id = "01-filter-A1";
+  step01.type = "filter";
+  if (!step01.input || typeof step01.input !== "object") {
+    step01.input = { source: "normalized" };
+  }
+  const inputObj = step01.input as Record<string, unknown>;
+  if (!normalize(inputObj.source)) inputObj.source = "normalized";
+
+  if (!step01.rules || typeof step01.rules !== "object") {
+    step01.rules = { keep_if_any: [], drop_if_any: [] };
+  }
+  const rules = step01.rules as Record<string, unknown>;
+  if (!Array.isArray(rules.keep_if_any)) rules.keep_if_any = [];
+  if (!Array.isArray(rules.drop_if_any)) rules.drop_if_any = [];
+
+  upsertCodeRule(rules, "naics_codes", selection.naicsCodes);
+  upsertCodeRule(rules, "sic_codes", selection.sicCodes);
+
+  const keepRules = Array.isArray(rules.keep_if_any) ? rules.keep_if_any : [];
+  if (keepRules.length === 0) {
+    rules.keep_if_any = [
+      {
+        type: "regex",
+        field: "profile_text",
+        pattern: "\\bmortgage\\b|\\bhome loan\\b|\\brefinance\\b|\\bheloc\\b",
+        flags: "i"
+      }
+    ];
+  }
+  step01.rules = rules;
+  return steps;
+}
+
+function repairCandidate(candidateInput: Record<string, unknown>, input: ConfigGenerationInput, selection: CodeSelection): Record<string, unknown> {
+  const defaultConfig = buildDefaultConfig(input, selection);
   const candidate = { ...candidateInput };
 
   if (!Array.isArray(candidate.steps)) {
@@ -280,7 +514,7 @@ function repairCandidate(candidateInput: Record<string, unknown>, input: ConfigG
         }
 
         if (!row.task || typeof row.task !== "object") {
-          row.task = (buildDefaultConfig(input).steps as Array<Record<string, unknown>>)[0].task;
+          row.task = ((buildDefaultConfig(input, selection).steps as Array<Record<string, unknown>>)[1] ?? {}).task;
         }
         const task = row.task as Record<string, unknown>;
         if (!normalize(task.criteria_name)) task.criteria_name = "target_classification";
@@ -315,7 +549,10 @@ function repairCandidate(candidateInput: Record<string, unknown>, input: ConfigG
     })
     .filter((step): step is Record<string, unknown> => Boolean(step));
 
-  candidate.steps = repairedSteps.length > 0 ? repairedSteps : defaultConfig.steps;
+  const repairedOrDefault = repairedSteps.length > 0
+    ? repairedSteps
+    : ((defaultConfig.steps ?? []) as Array<Record<string, unknown>>);
+  candidate.steps = ensureStep01Filter(repairedOrDefault, input, selection);
   return candidate;
 }
 
@@ -326,7 +563,7 @@ function formatValidationErrors(error: ZodError): string[] {
   });
 }
 
-function buildInitialPrompt(input: ConfigGenerationInput): string {
+function buildInitialPrompt(input: ConfigGenerationInput, selection: CodeSelection): string {
   const headers = input.csvHeaders.length > 0
     ? input.csvHeaders.join(", ")
     : "(unknown headers)";
@@ -336,20 +573,26 @@ function buildInitialPrompt(input: ConfigGenerationInput): string {
     "Do not return markdown, comments, explanation, or partial patch.",
     "Hard requirements:",
     "1) top-level object with steps[] (required, non-empty).",
-    "2) include at least one ai_text step.",
-    "3) each ai_text/web_ai step must include: id, type, input, ai, task.",
-    "4) if type=web_ai, scrape object is mandatory.",
-    "5) task requires: criteria_name, read_fields, instructions, decision_field, confidence_field.",
-    "6) If apollo_people exists, people.target_roles_or_titles[] and people.seniority_min are mandatory.",
+    "2) step[0] must be filter step id=01-filter-A1 with keep_if_any code_in rules on naics_codes and sic_codes when relevant.",
+    "3) include at least one ai_text step after filter.",
+    "4) each ai_text/web_ai step must include: id, type, input, ai, task.",
+    "5) if type=web_ai, scrape object is mandatory.",
+    "6) task requires: criteria_name, read_fields, instructions, decision_field, confidence_field.",
+    "7) If apollo_people exists, people.target_roles_or_titles[] and people.seniority_min are mandatory.",
     "Use concise but valid defaults.",
+    `Reference files available on backend: ${NAICS_REFERENCE_PATH} and ${SIC_REFERENCE_PATH}.`,
+    `Suggested NAICS codes from prompt: ${selection.naicsCodes.join(", ") || "(none)"}`,
+    `Suggested SIC codes from prompt: ${selection.sicCodes.join(", ") || "(none)"}`,
+    `Matched NAICS labels: ${selection.matchedNaicsLabels.join(" | ") || "(none)"}`,
+    `Matched SIC labels: ${selection.matchedSicLabels.join(" | ") || "(none)"}`,
     `CSV headers: ${headers}`,
     `User intent: ${input.prompt}`,
     "Template example (must be valid JSON object):",
-    JSON.stringify(buildDefaultConfig(input), null, 2)
+    JSON.stringify(buildDefaultConfig(input, selection), null, 2)
   ].join("\n");
 }
 
-function buildFixPrompt(previousJson: string, errors: string[], input: ConfigGenerationInput): string {
+function buildFixPrompt(previousJson: string, errors: string[], input: ConfigGenerationInput, selection: CodeSelection): string {
   return [
     "Fix this config so it fully validates.",
     "Return only one complete JSON object, not a patch.",
@@ -358,9 +601,14 @@ function buildFixPrompt(previousJson: string, errors: string[], input: ConfigGen
     ...errors.map((error) => `- ${error}`),
     "Current invalid JSON:",
     previousJson,
+    `Use NAICS reference file: ${NAICS_REFERENCE_PATH}`,
+    `Use SIC reference file: ${SIC_REFERENCE_PATH}`,
+    `Suggested NAICS codes: ${selection.naicsCodes.join(", ") || "(none)"}`,
+    `Suggested SIC codes: ${selection.sicCodes.join(", ") || "(none)"}`,
     "Remember: if step.type is web_ai, include scrape object.",
+    "Remember: include step 01 filter with code_in rules (naics_codes/sic_codes) when possible.",
     "If missing, use this safe template and adapt:",
-    JSON.stringify(buildDefaultConfig(input), null, 2)
+    JSON.stringify(buildDefaultConfig(input, selection), null, 2)
   ].join("\n");
 }
 
@@ -408,11 +656,14 @@ export class ConfigGenerator {
 
   private async runJob(job: ConfigGenerationJob, input: ConfigGenerationInput): Promise<void> {
     try {
+      const naicsCatalog = readCodeReferenceCatalog(NAICS_REFERENCE_PATH);
+      const sicCatalog = readCodeReferenceCatalog(SIC_REFERENCE_PATH);
+      const selection = deriveCodesFromPrompt(input.prompt, naicsCatalog, sicCatalog);
       this.updateJob(job, { stage: "creating_session", percent: 5 });
       const sessionId = await this.createSession();
 
       let errors: string[] = [];
-      let lastCandidate = JSON.stringify(buildDefaultConfig(input), null, 2);
+      let lastCandidate = JSON.stringify(buildDefaultConfig(input, selection), null, 2);
 
       for (let attempt = 1; attempt <= job.maxAttempts; attempt += 1) {
         this.updateJob(job, {
@@ -423,13 +674,13 @@ export class ConfigGenerator {
         });
 
         const prompt = attempt === 1
-          ? buildInitialPrompt(input)
-          : buildFixPrompt(lastCandidate, errors, input);
+          ? buildInitialPrompt(input, selection)
+          : buildFixPrompt(lastCandidate, errors, input, selection);
         const responseText = await this.sendMessage(sessionId, prompt);
         this.updateJob(job, { stage: "validating", percent: Math.min(95, job.percent + 8) });
 
         const candidates = extractJsonCandidates(responseText)
-          .map((candidate) => repairCandidate(unwrapCandidate(candidate), input));
+          .map((candidate) => repairCandidate(unwrapCandidate(candidate), input, selection));
         if (candidates.length === 0) {
           errors = ["Response did not contain a valid JSON object."];
           continue;
@@ -463,7 +714,7 @@ export class ConfigGenerator {
       }
 
       // Last-resort fallback: always return a schema-valid baseline config instead of failing hard.
-      const fallbackValidated = RunConfigSchema.safeParse(repairCandidate(buildDefaultConfig(input), input));
+      const fallbackValidated = RunConfigSchema.safeParse(repairCandidate(buildDefaultConfig(input, selection), input, selection));
       if (fallbackValidated.success) {
         this.updateJob(job, {
           status: "completed",

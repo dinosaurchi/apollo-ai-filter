@@ -9,7 +9,9 @@ coverage
 !.env.example
 
 # Runtime data
-data
+/data/*
+!/data/company_naics_codes.json
+!/data/company_sic_codes.json
 postgres-data
 backend/data/output-docker
 backend/.sandbox

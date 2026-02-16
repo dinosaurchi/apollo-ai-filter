@@ -1,0 +1,132 @@
+{
+  "generatedAt": "2026-02-16",
+  "sources": [
+    "https://www.bls.gov/cew/classifications/industry/qcew-naics-hierarchy-crosswalk.htm",
+    "https://www.census.gov/naics/resources/archives/sect51.html",
+    "https://www.census.gov/naics/resources/archives/sect53.html",
+    "https://www.census.gov/naics/resources/archives/sect54.html",
+    "https://www.census.gov/naics/resources/archives/sect52.html"
+  ],
+  "entries": [
+    {
+      "key": "mortgage_lender",
+      "label": "Mortgage Lenders (Real Estate Credit)",
+      "keywords": ["mortgage lender", "mortgage lending", "mortgage company", "home loan", "refinance", "heloc", "real estate credit"],
+      "codes": ["522292"]
+    },
+    {
+      "key": "loan_broker",
+      "label": "Mortgage and Nonmortgage Loan Brokers",
+      "keywords": ["loan broker", "mortgage broker", "brokerage", "arranging loans"],
+      "codes": ["522310"]
+    },
+    {
+      "key": "commercial_banking",
+      "label": "Commercial Banking",
+      "keywords": ["commercial bank", "banking", "depository", "bank"],
+      "codes": ["522110"]
+    },
+    {
+      "key": "credit_unions",
+      "label": "Credit Unions",
+      "keywords": ["credit union", "credit unions"],
+      "codes": ["522130"]
+    },
+    {
+      "key": "real_estate_agents",
+      "label": "Offices of Real Estate Agents and Brokers",
+      "keywords": ["real estate agent", "real estate broker", "realtor", "property sales"],
+      "codes": ["531210"]
+    },
+    {
+      "key": "residential_property_management",
+      "label": "Residential Property Managers",
+      "keywords": ["residential property management", "hoa management", "property manager"],
+      "codes": ["531311"]
+    },
+    {
+      "key": "nonresidential_property_management",
+      "label": "Nonresidential Property Managers",
+      "keywords": ["commercial property management", "nonresidential property manager"],
+      "codes": ["531312"]
+    },
+    {
+      "key": "real_estate_appraisers",
+      "label": "Offices of Real Estate Appraisers",
+      "keywords": ["real estate appraisal", "property appraisal", "appraiser"],
+      "codes": ["531320"]
+    },
+    {
+      "key": "title_abstract_settlement",
+      "label": "Title Abstract and Settlement Offices",
+      "keywords": ["title abstract", "title search", "settlement office", "closing services", "escrow"],
+      "codes": ["541191"]
+    },
+    {
+      "key": "insurance_agencies",
+      "label": "Insurance Agencies and Brokerages",
+      "keywords": ["insurance agency", "insurance brokerage", "insurance broker"],
+      "codes": ["524210"]
+    },
+    {
+      "key": "title_insurance",
+      "label": "Direct Title Insurance Carriers",
+      "keywords": ["title insurance", "title insurer"],
+      "codes": ["524127"]
+    },
+    {
+      "key": "software_publishers",
+      "label": "Software Publishers",
+      "keywords": ["software publisher", "software publishing", "saas", "software platform", "b2b software"],
+      "codes": ["513210", "511210"]
+    },
+    {
+      "key": "custom_programming",
+      "label": "Custom Computer Programming Services",
+      "keywords": ["custom software", "software development", "application development", "programming services"],
+      "codes": ["541511"]
+    },
+    {
+      "key": "systems_design",
+      "label": "Computer Systems Design Services",
+      "keywords": ["it consulting", "systems integration", "computer systems design"],
+      "codes": ["541512"]
+    },
+    {
+      "key": "data_processing_hosting",
+      "label": "Computing Infrastructure Providers, Data Processing, Web Hosting, and Related Services",
+      "keywords": ["cloud hosting", "data processing", "web hosting", "infrastructure provider", "managed hosting"],
+      "codes": ["518210"]
+    },
+    {
+      "key": "temporary_help",
+      "label": "Temporary Help Services",
+      "keywords": ["staffing", "temp staffing", "temporary help", "contract staffing"],
+      "codes": ["561320"]
+    },
+    {
+      "key": "management_consulting",
+      "label": "Administrative Management and General Management Consulting Services",
+      "keywords": ["management consulting", "business consulting", "strategy consulting"],
+      "codes": ["541611"]
+    },
+    {
+      "key": "physician_offices",
+      "label": "Offices of Physicians (except Mental Health Specialists)",
+      "keywords": ["medical practice", "doctor office", "physician", "clinic"],
+      "codes": ["621111"]
+    },
+    {
+      "key": "dentist_offices",
+      "label": "Offices of Dentists",
+      "keywords": ["dentist", "dental clinic", "dental office"],
+      "codes": ["621210"]
+    },
+    {
+      "key": "general_hospitals",
+      "label": "General Medical and Surgical Hospitals",
+      "keywords": ["hospital", "medical center", "general hospital"],
+      "codes": ["622110"]
+    }
+  ]
+}
