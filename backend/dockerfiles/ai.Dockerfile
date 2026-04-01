@@ -42,8 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zsh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && \
-    npm install -g npm@latest
+RUN corepack enable
 
 RUN if [ "${INSTALL_AI_CLIS}" = "true" ]; then \
       npm install -g "${CODEX_NPM_PACKAGE}" "${OPENCODE_NPM_PACKAGE}"; \
